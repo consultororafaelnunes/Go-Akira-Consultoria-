@@ -1,0 +1,16 @@
+# Segredos — nunca versionar
+.env
+ID do cliente e Secret.txt
+senha app Agente Relatório.txt
+
+# Gerados pelo pipeline (dados, não código)
+summaries_*.json
+resumo_*.pdf
+relatorio_mensal_*.pptx
+Relatorio_mensal_*.pptx
+*.log
+
+# Ambiente
+__pycache__/
+node_modules/
+*.pyc

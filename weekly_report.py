@@ -1,0 +1,206 @@
+"""
+weekly_report.py — Relatório semanal de reuniões por consultor.
+
+Roda toda segunda-feira às 09:30, cobrindo a semana anterior (seg–sex).
+Agrupa as reuniões por consultor e envia email consolidado para os diretores.
+"""
+
+import json
+import os
+import smtplib
+from collections import defaultdict
+from datetime import date, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+
+
+def _previous_week_range() -> tuple[date, date]:
+    """Retorna (segunda, sexta) da semana anterior."""
+    today = date.today()
+    # Volta até a segunda-feira da semana atual, depois subtrai 7 dias
+    last_monday = today - timedelta(days=today.weekday() + 7)
+    last_friday = last_monday + timedelta(days=4)
+    return last_monday, last_friday
+
+
+def _load_week_summaries(start: date, end: date, summaries_dir: str = ".") -> list[dict]:
+    """Carrega todos os resumos de arquivos summaries_YYYY-MM-DD.json da semana."""
+    summaries = []
+    current = start
+    while current <= end:
+        path = Path(summaries_dir) / f"summaries_{current.isoformat()}.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                for s in data:
+                    s["_date"] = current.isoformat()
+                summaries.extend(data)
+            except Exception as e:
+                print(f"   Aviso: erro ao ler {path.name} — {e}")
+        current += timedelta(days=1)
+    return summaries
+
+
+def _group_by_consultant(summaries: list[dict]) -> dict[str, list[dict]]:
+    """Agrupa resumos por consultor BP."""
+    try:
+        from consultants import get_bp_consultant
+    except ImportError:
+        get_bp_consultant = lambda c: "Rafael"
+
+    grouped = defaultdict(list)
+    for s in summaries:
+        consultor = get_bp_consultant(s.get("cliente", "")) or "Não identificado"
+        grouped[consultor].append(s)
+    return dict(grouped)
+
+
+def _sentiment_badge(sent: str) -> str:
+    styles = {
+        "positivo":    "background:#CCFBF1;color:#0D9488",
+        "neutro":      "background:#FEF3C7;color:#92400E",
+        "preocupante": "background:#FEE2E2;color:#DC2626",
+    }
+    style = styles.get(sent, "background:#F1F5F9;color:#64748B")
+    return (
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:20px;'
+        f'font-size:11px;font-weight:700;{style}">{sent.capitalize()}</span>'
+    )
+
+
+def _build_html(grouped: dict[str, list[dict]], start: date, end: date) -> str:
+    total = sum(len(v) for v in grouped.values())
+    n_clientes = len({s.get("cliente", "") for v in grouped.values() for s in v})
+    n_alertas = sum(1 for v in grouped.values() for s in v if s.get("alertas"))
+
+    alert_banner = ""
+    if n_alertas:
+        alert_banner = f"""
+        <p style="background:#FEE2E2;border-radius:6px;padding:10px 14px;
+                  color:#DC2626;font-size:13px;margin-bottom:20px">
+          <b>⚠️ {n_alertas} reunião(ões) com alertas</b> — revise as atas com atenção.
+        </p>"""
+
+    consultant_sections = ""
+    for consultor, meetings in sorted(grouped.items()):
+        n_pos  = sum(1 for s in meetings if s.get("sentimento") == "positivo")
+        n_preo = sum(1 for s in meetings if s.get("sentimento") == "preocupante")
+
+        rows = ""
+        for s in meetings:
+            ata   = s.get("ata_link", "")
+            ata_btn = (
+                f'<a href="{ata}" style="font-size:11px;color:#1E2761;'
+                f'text-decoration:underline;white-space:nowrap">Ver ata →</a>'
+                if ata else "—"
+            )
+            data_str = s.get("data_reuniao", s.get("_date", "—"))
+            rows += f"""
+            <tr>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
+                         font-size:12px;color:#64748B;white-space:nowrap">{data_str}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
+                         font-size:13px;color:#1E293B;font-weight:600">{s.get("cliente","—")}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
+                         font-size:12px;color:#374151">{s.get("titulo_reuniao","—")}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0">{_sentiment_badge(s.get("sentimento","neutro"))}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0">{ata_btn}</td>
+            </tr>"""
+
+        stat_color = "#DC2626" if n_preo else ("#0D9488" if n_pos == len(meetings) else "#D97706")
+        consultant_sections += f"""
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      margin-bottom:8px">
+            <h3 style="margin:0;font-size:15px;color:#1E2761">{consultor}</h3>
+            <span style="font-size:11px;color:{stat_color};font-weight:700">
+              {len(meetings)} reunião(ões)
+              {f' · {n_preo} alerta(s)' if n_preo else ''}
+            </span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:#1E2761">
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Data</th>
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Cliente</th>
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Reunião</th>
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Sentimento</th>
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Ata</th>
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>"""
+
+    sem_inicio = start.strftime("%d/%m")
+    sem_fim    = end.strftime("%d/%m/%Y")
+
+    return f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;padding:24px">
+      <div style="background:#1E2761;padding:28px;border-radius:10px 10px 0 0">
+        <h2 style="color:#CADCFC;margin:0;font-size:22px">
+          Resumo Semanal de Reuniões — {sem_inicio} a {sem_fim}
+        </h2>
+        <p style="color:#8899CC;margin:8px 0 0;font-size:13px">
+          {total} reunião(ões) · {n_clientes} cliente(s) · {len(grouped)} consultor(es)
+        </p>
+      </div>
+      <div style="background:#F7F9FF;padding:24px 28px;border:1px solid #e0e4f0;
+                  border-top:none;border-radius:0 0 10px 10px">
+        {alert_banner}
+        {consultant_sections}
+        <p style="font-size:11px;color:#94A3B8;text-align:center;margin-top:8px">
+          Gerado automaticamente · Agente de Reuniões GoAkira · Claude Haiku 4.5
+        </p>
+      </div>
+    </body></html>"""
+
+
+def send_weekly_report(summaries_dir: str = ".") -> None:
+    start, end = _previous_week_range()
+    print(f"Relatório semanal: {start.strftime('%d/%m')} a {end.strftime('%d/%m/%Y')}")
+
+    summaries = _load_week_summaries(start, end, summaries_dir)
+    if not summaries:
+        print(f"   Nenhuma reunião encontrada na semana de {start} a {end}.")
+        return
+
+    grouped = _group_by_consultant(summaries)
+    print(f"   {len(summaries)} reunião(ões) · {len(grouped)} consultor(es)")
+
+    html = _build_html(grouped, start, end)
+
+    raw = os.environ.get("DIRECTORS_EMAILS", os.environ.get("RECIPIENT_EMAIL", ""))
+    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+    if not recipients:
+        print("   Aviso: nenhum destinatário configurado em DIRECTORS_EMAILS")
+        return
+
+    sem_inicio = start.strftime("%d/%m")
+    sem_fim    = end.strftime("%d/%m/%Y")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = (
+        f"[GoAkira] Resumo Semanal — {sem_inicio} a {sem_fim} "
+        f"({len(summaries)} reunião(ões) · {len(grouped)} consultor(es))"
+    )
+    msg["From"] = (
+        f"{os.environ.get('SENDER_NAME', 'Agente de Reuniões GoAkira')} "
+        f"<{os.environ['SMTP_USER']}>"
+    )
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    with smtplib.SMTP_SSL(host, 465) as s:
+        s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+        s.sendmail(os.environ["SMTP_USER"], recipients, msg.as_string())
+
+    print(f"   Relatório semanal enviado para: {', '.join(recipients)}")
+
+
+if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
+    send_weekly_report()
