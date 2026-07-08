@@ -127,3 +127,27 @@ que tiverem gatilho ativado pelas respostas do Form daquele agente específico.
 - **Lição-origem:** generalização do cuidado com `.gitignore`/segredos do
   Agente de Relatórios para qualquer dado sensível processado por um agente,
   não apenas as credenciais do próprio agente
+
+## 10. Como calcular o veredito geral
+
+As categorias 1-9 produzem vereditos individuais (baixo/médio/alto). Esta
+seção define como agregá-los no "Nível de risco geral" e na recomendação do
+Resumo Executivo (Seção 1 do Documento de Visibilidade).
+
+**Risco geral:**
+
+- **ALTO** — se qualquer categoria individual for ALTO **e** não houver
+  mitigação viável identificada na conversa (ex: risco jurídico/PI sem
+  contrato revisável, ou segurança da informação sem resposta clara sobre
+  LGPD/retenção de dados)
+- **MÉDIO** — se houver 1 ou mais categorias ALTO com mitigação clara
+  identificada, ou 2 ou mais categorias MÉDIO
+- **BAIXO** — nos demais casos
+
+**Recomendação (veredito da Seção 1):**
+
+- Risco geral **ALTO** → "precisa mais discovery" — nunca gerar
+  automaticamente "não recomendado"; essa conclusão fica sempre a critério
+  humano, não do processo
+- Risco geral **MÉDIO** → "recomendado construir, com plano de mitigação"
+- Risco geral **BAIXO** → "recomendado construir"
