@@ -66,6 +66,26 @@ def check_env() -> list[str]:
     return [v for v in REQUIRED_VARS if not os.environ.get(v)]
 
 
+def _already_processed_ids() -> set[str]:
+    """
+    IDs (_message_id) de todas as transcrições já sumarizadas em execuções
+    anteriores. A janela de busca de 24h se sobrepõe entre execuções que não
+    ficam exatamente 24h uma da outra, então sem isso a mesma reunião pode
+    ser resumida (e ter ata duplicada) em dois dias seguidos.
+    """
+    ids: set[str] = set()
+    for path in Path(".").glob("summaries_*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for item in data:
+            mid = item.get("_message_id")
+            if mid:
+                ids.add(mid)
+    return ids
+
+
 def is_monthly_report_day() -> bool:
     """
     Retorna True se hoje é o dia de disparar o relatório mensal.
@@ -180,6 +200,7 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
         from summarize import summarize_all
 
         transcripts = get_all_transcripts(hours_back=hours_back)
+        transcripts = [t for t in transcripts if t.get("message_id") not in _already_processed_ids()]
         if not transcripts:
             print("\nℹ️  Sem transcrições hoje — encerrando.")
             return []
@@ -191,7 +212,7 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
 
     # Persiste JSON (fonte para o relatório mensal)
     json_path = Path(f"summaries_{date.today().isoformat()}.json")
-    json_path.write_text(json.dumps(summaries, ensure_ascii=False, indent=2))
+    json_path.write_text(json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n💾 Resumos salvos: {json_path}")
 
     # 3: Criar atas em .docx (template local) e salvar no Drive
@@ -270,7 +291,7 @@ def run_backfill(cliente: str, dry_run: bool = False) -> None:
         return
 
     json_path = Path(f"summaries_backfill_{cliente_norm.replace(' ', '_')}.json")
-    json_path.write_text(json.dumps(summaries, ensure_ascii=False, indent=2))
+    json_path.write_text(json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Resumos salvos: {json_path}")
 
     if not dry_run:
