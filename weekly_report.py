@@ -9,10 +9,14 @@ import json
 import os
 import smtplib
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+
+from generate_pdf import generate_weekly_pdf
 
 
 def _previous_week_range() -> tuple[date, date]:
@@ -22,6 +26,22 @@ def _previous_week_range() -> tuple[date, date]:
     last_monday = today - timedelta(days=today.weekday() + 7)
     last_friday = last_monday + timedelta(days=4)
     return last_monday, last_friday
+
+
+def _meeting_in_range(s: dict, start: date, end: date) -> bool:
+    """
+    Confirma que a reunião de fato ocorreu na semana, usando a data real da
+    reunião (data_reuniao) quando interpretável — o arquivo summaries_*.json em
+    que o resumo foi salvo reflete quando o pipeline processou a transcrição,
+    não quando a reunião de fato aconteceu (uma transcrição antiga pode ser
+    capturada tardiamente se o documento no Drive for modificado depois).
+    """
+    raw = s.get("data_reuniao", "")
+    try:
+        d = datetime.strptime(raw.strip(), "%d/%m/%Y").date()
+    except (ValueError, AttributeError):
+        return True  # data não interpretável — mantém, já está na janela do arquivo
+    return start <= d <= end
 
 
 def _load_week_summaries(start: date, end: date, summaries_dir: str = ".") -> list[dict]:
@@ -39,20 +59,35 @@ def _load_week_summaries(start: date, end: date, summaries_dir: str = ".") -> li
             except Exception as e:
                 print(f"   Aviso: erro ao ler {path.name} — {e}")
         current += timedelta(days=1)
-    return summaries
+    return [s for s in summaries if _meeting_in_range(s, start, end)]
 
 
 def _group_by_consultant(summaries: list[dict]) -> dict[str, list[dict]]:
-    """Agrupa resumos por consultor BP."""
+    """
+    Agrupa resumos por consultor responsável.
+    Prioriza o consultor que de fato gravou a reunião (campo "consultor",
+    pasta de origem no Drive) sobre a tabela estática de BP — clientes com
+    fases diferentes (ex: BP com um consultor, Manuais com outro) ficam mal
+    atribuídos se só olharmos o BP fixo do cliente. Clientes com mais de um
+    BP cadastrado (projeto conjunto) sempre creditam todos os BPs, independente
+    de quem gravou aquela reunião específica.
+    """
     try:
-        from consultants import get_bp_consultant
+        from consultants import get_bp_consultants
     except ImportError:
-        get_bp_consultant = lambda c: "Rafael"
+        get_bp_consultants = lambda c: ["Rafael"]
 
     grouped = defaultdict(list)
     for s in summaries:
-        consultor = get_bp_consultant(s.get("cliente", "")) or "Não identificado"
-        grouped[consultor].append(s)
+        bp_list = get_bp_consultants(s.get("cliente", ""))
+        if len(bp_list) > 1:
+            consultores = bp_list
+        elif s.get("consultor"):
+            consultores = [s["consultor"]]
+        else:
+            consultores = bp_list or ["Não identificado"]
+        for consultor in consultores:
+            grouped[consultor].append(s)
     return dict(grouped)
 
 
@@ -96,6 +131,8 @@ def _build_html(grouped: dict[str, list[dict]], start: date, end: date) -> str:
                 if ata else "—"
             )
             data_str = s.get("data_reuniao", s.get("_date", "—"))
+            fase     = s.get("fase", "BP")
+            duracao  = s.get("duracao_estimada", "—")
             rows += f"""
             <tr>
               <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
@@ -104,6 +141,10 @@ def _build_html(grouped: dict[str, list[dict]], start: date, end: date) -> str:
                          font-size:13px;color:#1E293B;font-weight:600">{s.get("cliente","—")}</td>
               <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
                          font-size:12px;color:#374151">{s.get("titulo_reuniao","—")}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
+                         font-size:12px;color:#374151">{fase}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0;
+                         font-size:12px;color:#64748B;white-space:nowrap">{duracao}</td>
               <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0">{_sentiment_badge(s.get("sentimento","neutro"))}</td>
               <td style="padding:9px 12px;border-bottom:1px solid #e0e4f0">{ata_btn}</td>
             </tr>"""
@@ -125,6 +166,8 @@ def _build_html(grouped: dict[str, list[dict]], start: date, end: date) -> str:
                 <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Data</th>
                 <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Cliente</th>
                 <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Reunião</th>
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Fase</th>
+                <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Duração</th>
                 <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Sentimento</th>
                 <th style="padding:8px 12px;text-align:left;color:#CADCFC;font-size:11px">Ata</th>
               </tr>
@@ -170,6 +213,7 @@ def send_weekly_report(summaries_dir: str = ".") -> None:
     print(f"   {len(summaries)} reunião(ões) · {len(grouped)} consultor(es)")
 
     html = _build_html(grouped, start, end)
+    pdf_bytes = generate_weekly_pdf(grouped, start, end)
 
     raw = os.environ.get("DIRECTORS_EMAILS", os.environ.get("RECIPIENT_EMAIL", ""))
     recipients = [e.strip() for e in raw.split(",") if e.strip()]
@@ -180,7 +224,7 @@ def send_weekly_report(summaries_dir: str = ".") -> None:
     sem_inicio = start.strftime("%d/%m")
     sem_fim    = end.strftime("%d/%m/%Y")
 
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = (
         f"[GoAkira] Resumo Semanal — {sem_inicio} a {sem_fim} "
         f"({len(summaries)} reunião(ões) · {len(grouped)} consultor(es))"
@@ -191,6 +235,15 @@ def send_weekly_report(summaries_dir: str = ".") -> None:
     )
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(html, "html", "utf-8"))
+
+    att = MIMEBase("application", "pdf")
+    att.set_payload(pdf_bytes)
+    encoders.encode_base64(att)
+    att.add_header(
+        "Content-Disposition", "attachment",
+        filename=f"resumo_semanal_{start.isoformat()}.pdf",
+    )
+    msg.attach(att)
 
     host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     with smtplib.SMTP_SSL(host, 465) as s:

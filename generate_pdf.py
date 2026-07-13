@@ -83,6 +83,7 @@ def _meeting_block(summary: dict, styles: dict) -> list:
     titulo    = summary.get("titulo_reuniao", "—")
     data      = summary.get("data_reuniao", "—")
     duracao   = summary.get("duracao_estimada", "—")
+    fase      = summary.get("fase", "BP")
     sent      = summary.get("sentimento", "neutro")
     prio      = summary.get("prioridade", "media")
     sent_cor  = SENTIMENT_COLOR.get(sent, AMBER)
@@ -90,7 +91,7 @@ def _meeting_block(summary: dict, styles: dict) -> list:
     # Cabeçalho do card
     header_data = [[
         Paragraph(
-            f"<b>{cliente}</b>  <font size='9' color='#CADCFC'>· {consultor}</font>",
+            f"<b>{cliente}</b>  <font size='9' color='#CADCFC'>· {consultor} · {fase}</font>",
             ParagraphStyle("h", fontSize=12, textColor=colors.white),
         ),
         Paragraph(f"{data}  ·  {duracao}", ParagraphStyle("h2", fontSize=9, textColor=ICE_BLUE, alignment=2)),
@@ -194,6 +195,53 @@ def generate_pdf(summaries: list[dict]) -> bytes:
     elements.append(Spacer(1, 12))
     elements.append(Paragraph(
         "Gerado automaticamente · Agente de Resumo de Reuniões · Claude Haiku 4.5",
+        s["footer"],
+    ))
+
+    doc.build(elements)
+    return buf.getvalue()
+
+
+def generate_weekly_pdf(grouped: dict[str, list[dict]], start: date, end: date) -> bytes:
+    """
+    Gera o PDF executivo do resumo semanal, agrupado por consultor.
+    Retorna os bytes do PDF.
+    """
+    buf = BytesIO()
+    sem_inicio = start.strftime("%d/%m")
+    sem_fim = end.strftime("%d/%m/%Y")
+    total = sum(len(v) for v in grouped.values())
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=2 * cm, rightMargin=2 * cm,
+        topMargin=2 * cm, bottomMargin=2 * cm,
+        title=f"Resumo Semanal — {sem_inicio} a {sem_fim}",
+        author="Agente de Resumo de Reuniões",
+    )
+
+    s = _styles()
+    elements = []
+
+    elements.append(Paragraph("Resumo Semanal de Reuniões", s["title"]))
+    elements.append(Paragraph(
+        f"{sem_inicio} a {sem_fim}  ·  {total} reunião(ões)  ·  {len(grouped)} consultor(es)",
+        s["subtitle"],
+    ))
+    elements.append(HRFlowable(width="100%", thickness=1, color=NAVY, spaceAfter=16))
+
+    if not grouped:
+        elements.append(Paragraph("Nenhuma reunião registrada nesta semana.", s["body"]))
+    else:
+        for consultor, meetings in sorted(grouped.items()):
+            elements.append(Paragraph(f"{consultor} — {len(meetings)} reunião(ões)", s["section"]))
+            elements.append(Spacer(1, 4))
+            for summary in meetings:
+                elements.extend(_meeting_block(summary, s))
+
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(
+        "Gerado automaticamente · Agente de Reuniões GoAkira · Claude Haiku 4.5",
         s["footer"],
     ))
 
