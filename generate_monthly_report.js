@@ -10,7 +10,9 @@
  *   Slide 1  — Capa (título, mês, total de reuniões)
  *   Slide 2  — Visão geral (métricas agregadas + gráfico de sentimento)
  *   Slide 3  — Mapa de calor por cliente (frequência × sentimento)
- *   Slides N — Um slide por cliente com card de resumo + acionáveis
+ *   Slides N — 4 slides por cliente, um por semana do mês (dias 1–7, 8–14,
+ *              15–21, 22+), sempre 4 mesmo em semanas sem reunião — mantém
+ *              visível o ritmo de acompanhamento ao longo do mês
  *   Penúltimo — Alertas críticos do mês
  *   Último   — Próximos passos consolidados
  */
@@ -106,6 +108,35 @@ function groupByClient(summaries) {
     map[c].push(s);
   }
   return map;
+}
+
+// Faixas de dia-do-mês usadas para dividir as reuniões de um cliente em
+// 4 "semanas" — não são semanas de calendário (seg-dom), mas quartos fixos
+// do mês, para que todo cliente sempre gere exatamente 4 slides.
+const WEEK_RANGES = [
+  { label: "Semana 1 (dias 1–7)",   min: 1,  max: 7   },
+  { label: "Semana 2 (dias 8–14)",  min: 8,  max: 14  },
+  { label: "Semana 3 (dias 15–21)", min: 15, max: 21  },
+  { label: "Semana 4 (dias 22+)",   min: 22, max: 99  },
+];
+
+function dayOfMonth(dataReuniao) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((dataReuniao || "").trim());
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Agrupa as reuniões de um cliente em 4 baldes fixos (uma semana cada),
+// preservando a ordem cronológica dentro de cada balde.
+function groupByWeek(meetings) {
+  const buckets = WEEK_RANGES.map(() => []);
+  for (const m of meetings) {
+    const day = dayOfMonth(m.data_reuniao);
+    const idx = day == null
+      ? 3 // sem data interpretável — cai na última semana em vez de sumir
+      : WEEK_RANGES.findIndex(r => day >= r.min && day <= r.max);
+    buckets[idx === -1 ? 3 : idx].push(m);
+  }
+  return buckets;
 }
 
 function countSentiments(summaries) {
@@ -306,16 +337,25 @@ function addClientMapSlide(pres, summaries) {
 
 // ── Slides por cliente ────────────────────────────────────────────────────────
 
-function addClientSlide(pres, cliente, meetings) {
+// Um slide por semana (sempre 4 por cliente) — quando a semana não teve
+// reunião, mostra um estado vazio consistente em vez de omitir o slide,
+// para que o ritmo de acompanhamento do mês fique visível de ponta a ponta.
+function addClientWeekSlide(pres, cliente, weekLabel, meetings) {
   const slide = pres.addSlide();
   slide.background = { color: C.offWhite };
 
-  const last       = meetings[meetings.length - 1];
-  const sent       = last.sentimento || "neutro";
-  const sentInfo   = SENTIMENT[sent] || SENTIMENT.neutro;
-  const allActions = meetings.flatMap(m => m.acionaveis || []);
-  const allAlerts  = meetings.flatMap(m => m.alertas  || []);
-  const allNext    = meetings.flatMap(m => m.proximos_passos || []);
+  const hasMeetings = meetings.length > 0;
+  const last        = hasMeetings ? meetings[meetings.length - 1] : null;
+  const sent        = hasMeetings ? (last.sentimento || "neutro") : null;
+  const sentInfo     = sent ? (SENTIMENT[sent] || SENTIMENT.neutro) : null;
+  const allActions  = meetings.flatMap(m => m.acionaveis || []);
+  const allAlerts   = meetings.flatMap(m => m.alertas  || []);
+
+  // Resumo consolidado: uma entrada por reunião da semana, com a data à frente
+  // quando há mais de uma reunião no mesmo balde.
+  const resumoConsolidado = meetings
+    .map(m => (meetings.length > 1 ? `[${m.data_reuniao}] ${m.resumo}` : m.resumo))
+    .join("\n\n");
 
   // Cabeçalho com fundo navy
   slide.addShape(pres.shapes.RECTANGLE, {
@@ -323,15 +363,35 @@ function addClientSlide(pres, cliente, meetings) {
     fill: { color: C.navy }, line: { color: C.navy },
   });
   slide.addText(truncate(cliente, 42), {
-    x: 0.5, y: 0.1, w: 8.0, h: 0.65,
-    fontSize: 28, bold: true, color: C.white,
+    x: 0.5, y: 0.1, w: 8.0, h: 0.5,
+    fontSize: 24, bold: true, color: C.white,
     fontFace: "Cambria", align: "left", margin: 0,
   });
-  slide.addText(`${meetings.length} reunião(ões) no mês  ·  Último sentimento: ${sentInfo.label}`, {
-    x: 0.5, y: 0.78, w: 9.0, h: 0.3,
-    fontSize: 11, color: C.iceBlue,
-    fontFace: "Calibri", align: "left",
-  });
+  slide.addText(
+    hasMeetings
+      ? `${weekLabel}  ·  ${meetings.length} reunião(ões)  ·  Sentimento: ${sentInfo.label}`
+      : `${weekLabel}  ·  Sem reunião registrada`,
+    {
+      x: 0.5, y: 0.72, w: 9.0, h: 0.3,
+      fontSize: 12, color: C.iceBlue,
+      fontFace: "Calibri", align: "left",
+    }
+  );
+
+  if (!hasMeetings) {
+    slide.addShape(pres.shapes.ROUNDED_RECTANGLE, {
+      x: 0.4, y: 1.35, w: 9.15, h: 3.9,
+      fill: { color: C.white }, line: { color: C.grayMid, pt: 0.5 },
+      rectRadius: 0.1,
+      shadow: { type: "outer", color: "000000", blur: 5, offset: 2, angle: 45, opacity: 0.08 },
+    });
+    slide.addText("Sem reunião registrada nesta semana.", {
+      x: 0.4, y: 1.35, w: 9.15, h: 3.9,
+      fontSize: 13, color: C.gray, italic: true,
+      fontFace: "Calibri", align: "center", valign: "middle",
+    });
+    return;
+  }
 
   // ── Coluna esquerda: Resumo ──
   slide.addShape(pres.shapes.ROUNDED_RECTANGLE, {
@@ -340,12 +400,12 @@ function addClientSlide(pres, cliente, meetings) {
     rectRadius: 0.1,
     shadow: { type: "outer", color: "000000", blur: 5, offset: 2, angle: 45, opacity: 0.08 },
   });
-  slide.addText("RESUMO EXECUTIVO", {
+  slide.addText("RESUMO DA SEMANA", {
     x: 0.55, y: 1.5, w: 3.9, h: 0.3,
     fontSize: 10, bold: true, color: C.navy,
     fontFace: "Calibri", charSpacing: 2,
   });
-  slide.addText(fitTextToBox(last.resumo, 3.9, 3.3, 11), {
+  slide.addText(fitTextToBox(resumoConsolidado, 3.9, 3.3, 11), {
     x: 0.55, y: 1.85, w: 3.9, h: 3.3,
     fontSize: 11, color: C.navyDark,
     fontFace: "Calibri", align: "left", valign: "top",
@@ -359,7 +419,7 @@ function addClientSlide(pres, cliente, meetings) {
     rectRadius: 0.1,
     shadow: { type: "outer", color: "000000", blur: 5, offset: 2, angle: 45, opacity: 0.08 },
   });
-  slide.addText("ACIONÁVEIS DO MÊS", {
+  slide.addText("ACIONÁVEIS DA SEMANA", {
     x: 5.0, y: 1.48, w: 4.4, h: 0.3,
     fontSize: 10, bold: true, color: C.navy,
     fontFace: "Calibri", charSpacing: 2,
@@ -407,7 +467,7 @@ function addClientSlide(pres, cliente, meetings) {
     text: a,
     options: { bullet: true, breakLine: i < alertsShown.length - 1, fontSize: alertFontSize, color: C.coral },
   }));
-  if (alertItems.length === 0) alertItems.push({ text: "Nenhum alerta registrado no mês", options: { fontSize: alertFontSize, color: C.teal } });
+  if (alertItems.length === 0) alertItems.push({ text: "Nenhum alerta registrado na semana", options: { fontSize: alertFontSize, color: C.teal } });
   slide.addText(alertItems, {
     x: 5.0, y: 4.4, w: 4.4, h: alertBoxH,
     fontFace: "Calibri", valign: "top",
@@ -418,6 +478,14 @@ function addClientSlide(pres, cliente, meetings) {
       fontSize: 7, italic: true, color: C.gray, fontFace: "Calibri",
     });
   }
+}
+
+// Gera os 4 slides semanais de um cliente.
+function addClientSlides(pres, cliente, meetings) {
+  const weeks = groupByWeek(meetings);
+  weeks.forEach((weekMeetings, i) => {
+    addClientWeekSlide(pres, cliente, WEEK_RANGES[i].label, weekMeetings);
+  });
 }
 
 // ── Slide de Alertas Críticos ─────────────────────────────────────────────────
@@ -564,10 +632,10 @@ async function main() {
   // Slide 3: Mapa de clientes
   addClientMapSlide(pres, summaries);
 
-  // Slides por cliente (um por cliente)
+  // Slides por cliente (4 por cliente — uma por semana do mês)
   const byClient = groupByClient(summaries);
   for (const [cliente, meetings] of Object.entries(byClient)) {
-    addClientSlide(pres, cliente, meetings);
+    addClientSlides(pres, cliente, meetings);
   }
 
   // Slide de alertas críticos
