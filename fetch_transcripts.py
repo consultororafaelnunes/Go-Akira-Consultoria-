@@ -41,6 +41,28 @@ SCOPES = [
 
 GDOC_MIME = "application/vnd.google-apps.document"
 
+# Sufixos que o Google Meet/Gemini usa para nomear os dois arquivos de uma
+# mesma reunião — a transcrição (Google Doc) e a gravação (vídeo). Usados
+# para casar os dois pelo nome-base e extrair a duração real do vídeo.
+_DOC_SUFFIX = " - Anotações do Gemini"
+_VIDEO_SUFFIX = " - Recording"
+
+
+def _base_name(name: str, suffix: str) -> str:
+    if name.endswith(suffix):
+        return name[: -len(suffix)].rstrip()
+    return name.rstrip()
+
+
+def _format_duration(duration_millis: int) -> str:
+    total_min = round(duration_millis / 60000)
+    h, m = divmod(total_min, 60)
+    if h and m:
+        return f"{h}h {m}min"
+    if h:
+        return f"{h}h"
+    return f"{m}min"
+
 # [Cliente] [Fase. ]Desc - YYYY/MM/DD HH:MM [GMT±HH:MM] [- Anotações do Gemini]
 # A parte "Fase." é opcional; a timezone GMT é ignorada pelo grupo data.
 _FILENAME_RE = re.compile(
@@ -176,10 +198,14 @@ def _read_doc_text(service, file_id: str) -> str:
 
 
 def _list_folder(service, folder_id: str, hours_back: int | None) -> list[dict]:
-    """Lista Google Docs de uma pasta, com filtro opcional de data de modificação."""
+    """
+    Lista Google Docs (transcrições) e vídeos (gravações) de uma pasta, com
+    filtro opcional de data de modificação. Os vídeos são usados só para
+    extrair a duração real da reunião — nunca processados como transcrição.
+    """
     query_parts = [
         f"'{folder_id}' in parents",
-        f"mimeType = '{GDOC_MIME}'",
+        f"(mimeType = '{GDOC_MIME}' or mimeType = 'video/mp4' or mimeType = 'video/webm')",
         "trashed = false",
     ]
     if hours_back is not None:
@@ -192,7 +218,7 @@ def _list_folder(service, folder_id: str, hours_back: int | None) -> list[dict]:
     while True:
         params = dict(
             q=query,
-            fields="nextPageToken, files(id, name, modifiedTime)",
+            fields="nextPageToken, files(id, name, modifiedTime, mimeType, videoMediaMetadata)",
             pageSize=200,
             orderBy="name",
             supportsAllDrives=True,
@@ -206,6 +232,20 @@ def _list_folder(service, folder_id: str, hours_back: int | None) -> list[dict]:
         if not token:
             break
     return files
+
+
+def _video_duration_by_base_name(files: list[dict]) -> dict[str, str]:
+    """Mapeia nome-base da reunião -> duração formatada, a partir dos vídeos da pasta."""
+    result = {}
+    for f in files:
+        if not f.get("mimeType", "").startswith("video/"):
+            continue
+        duration_millis = (f.get("videoMediaMetadata") or {}).get("durationMillis")
+        if not duration_millis:
+            continue
+        base = _base_name(f["name"], _VIDEO_SUFFIX)
+        result[base] = _format_duration(int(duration_millis))
+    return result
 
 
 def fetch_drive_transcripts(
@@ -247,9 +287,11 @@ def fetch_drive_transcripts(
 
         print(f"   Buscando em Meet Recordings de {nome_consultor}...")
         files = _list_folder(service, folder_id, hours_back)
-        print(f"      {len(files)} arquivo(s) encontrado(s)")
+        docs = [f for f in files if f.get("mimeType") == GDOC_MIME]
+        duration_by_base = _video_duration_by_base_name(files)
+        print(f"      {len(docs)} arquivo(s) encontrado(s)")
 
-        for f in files:
+        for f in docs:
             if f["id"] in seen_ids:
                 continue
             seen_ids.add(f["id"])
@@ -273,6 +315,8 @@ def fetch_drive_transcripts(
                 print(f"      Pulando (sem conteúdo): {f['name'][:60]}")
                 continue
 
+            duracao_real = duration_by_base.get(_base_name(f["name"], _DOC_SUFFIX))
+
             print(f"      OK: [{parsed['cliente']}] {parsed['assunto']} ({parsed['data_reuniao']})")
             transcripts.append({
                 "message_id":  f["id"],
@@ -284,6 +328,7 @@ def fetch_drive_transcripts(
                 "consultor":   nome_consultor,
                 "data_dt":     parsed["data_dt"],
                 "transcript":  text.strip(),
+                "duracao_real": duracao_real,
             })
 
     transcripts.sort(key=lambda t: t["data_dt"])

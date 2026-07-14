@@ -26,7 +26,7 @@ Campos obrigatórios:
   "cliente":          "Nome do cliente ou empresa principal mencionada na reunião",
   "titulo_reuniao":   "Título descritivo da reunião (ex: 'Revisão de roadmap Q3')",
   "data_reuniao":     "DD/MM/YYYY — extraia da transcrição; se ausente, use a data do email",
-  "duracao_estimada": "Estimativa com base no conteúdo (ex: '45min', '1h 30min')",
+  "duracao_estimada": "Estimativa com base no conteúdo (ex: '45min', '1h 30min') — só é usada quando não há duração real da gravação disponível",
   "participantes":    ["Nome Sobrenome"],
   "resumo":           "Parágrafo objetivo (máx. ~600 caracteres) com os temas discutidos, decisões tomadas e contexto geral",
   "acionaveis":       ["Ação objetiva com responsável e prazo quando mencionados — máx. ~110 caracteres cada"],
@@ -122,6 +122,23 @@ def summarize_transcript(transcript: dict) -> dict | None:
             # tentando extrair o nome da empresa do texto da transcrição — nunca sobrescrever.
             if transcript.get("cliente"):
                 summary["cliente"] = transcript["cliente"]
+            # Consultor que de fato gravou/conduziu a reunião (pasta de origem no
+            # Drive) — mais confiável que a tabela estática de consultants.py
+            # quando o cliente tem fases diferentes com responsáveis diferentes
+            # (ex: BP com um consultor, Manuais com outro).
+            if transcript.get("consultor"):
+                summary["consultor"] = transcript["consultor"]
+            # Duração real do vídeo da gravação (Drive videoMediaMetadata) é
+            # sempre mais precisa do que a estimativa do Claude a partir do
+            # texto da transcrição — a estimativa só é usada como fallback
+            # quando o vídeo da gravação não foi encontrado/sincronizado.
+            if transcript.get("duracao_real"):
+                summary["duracao_estimada"] = transcript["duracao_real"]
+            try:
+                from consultants import get_fase_reuniao
+                summary["fase"] = get_fase_reuniao(summary.get("cliente"), summary.get("consultor"))
+            except Exception:
+                pass
             return summary
 
         except json.JSONDecodeError as e:
