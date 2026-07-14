@@ -6,6 +6,7 @@ monthly_report.py — Orquestra o relatório mensal:
   4. Envia email de entrega com link + arquivo em anexo
 """
 
+import calendar
 import json
 import os
 import subprocess
@@ -138,6 +139,22 @@ def generate_pptx(summaries: list[dict], output_path: str, mes_ano: str) -> str:
     return output_path
 
 
+# ── Relatório detalhado por consultor (PDF) ───────────────────────────────────
+
+def generate_consultant_pdf(summaries: list[dict], year: int, month: int) -> bytes:
+    """
+    Gera um PDF com o resumo completo de todas as reuniões do mês,
+    agrupadas por consultor — mesmo padrão visual do relatório semanal.
+    """
+    from weekly_report import _group_by_consultant
+    from generate_pdf import generate_weekly_pdf
+
+    grouped = _group_by_consultant(summaries)
+    start = date(year, month, 1)
+    end = date(year, month, calendar.monthrange(year, month)[1])
+    return generate_weekly_pdf(grouped, start, end)
+
+
 # ── Email de entrega ──────────────────────────────────────────────────────────
 
 def _get_consultor_monthly(cliente: str) -> str:
@@ -148,7 +165,10 @@ def _get_consultor_monthly(cliente: str) -> str:
         return "—"
 
 
-def send_monthly_email(pptx_path: str, drive_link: str, summaries: list[dict], mes_ano: str) -> None:
+def send_monthly_email(
+    pptx_path: str, drive_link: str, summaries: list[dict], mes_ano: str,
+    consultant_pdf_bytes: bytes | None = None, consultant_pdf_filename: str | None = None,
+) -> None:
     """Envia o email de entrega do relatório mensal com o PPTX em anexo."""
     import smtplib
     from email import encoders
@@ -241,6 +261,14 @@ def send_monthly_email(pptx_path: str, drive_link: str, summaries: list[dict], m
                        filename=Path(pptx_path).name)
         msg.attach(att)
 
+    if consultant_pdf_bytes:
+        att = MIMEBase("application", "pdf")
+        att.set_payload(consultant_pdf_bytes)
+        encoders.encode_base64(att)
+        att.add_header("Content-Disposition", "attachment",
+                       filename=consultant_pdf_filename or "relatorio_por_consultor.pdf")
+        msg.attach(att)
+
     with smtplib.SMTP_SSL(os.environ.get("SMTP_HOST","smtp.gmail.com"), 465) as s:
         s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
         s.sendmail(os.environ["SMTP_USER"], recipients, msg.as_string())
@@ -314,8 +342,16 @@ def run_monthly_report(
 
     drive_link = upload_pptx_to_drive(pptx_path, filename, year_folder_id)
 
+    # Gerar PDF detalhado por consultor
+    consultant_pdf_bytes = generate_consultant_pdf(summaries, year, month)
+    consultant_pdf_filename = f"relatorio_por_consultor_{year}_{month:02d}.pdf"
+
     # Enviar email
-    send_monthly_email(pptx_path, drive_link, summaries, mes_ano)
+    send_monthly_email(
+        pptx_path, drive_link, summaries, mes_ano,
+        consultant_pdf_bytes=consultant_pdf_bytes,
+        consultant_pdf_filename=consultant_pdf_filename,
+    )
 
     print(f"\n✅ Relatório mensal concluído: {mes_ano}")
 
