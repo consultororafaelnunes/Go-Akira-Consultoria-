@@ -13,16 +13,20 @@ from datetime import date
 
 import anthropic
 
+from consultants import SERVICOS_GOAKIRA
+
 MODEL      = "claude-haiku-4-5-20251001"
 MAX_CHARS  = 15000   # corte máximo por transcrição
 MAX_TOKENS = 4096
 MAX_RETRY  = 3       # tentativas por transcrição em caso de JSON inválido
 
-SYSTEM_PROMPT = """Você é um assistente especializado em análise de reuniões corporativas da GoAkira.
+_SERVICOS_LISTA = "\n".join(f"  - {s}" for s in SERVICOS_GOAKIRA)
+
+SYSTEM_PROMPT = f"""Você é um assistente especializado em análise de reuniões corporativas da GoAkira.
 Analise a transcrição e retorne APENAS um JSON válido, sem texto adicional, sem markdown.
 
 Campos obrigatórios:
-{
+{{
   "cliente":          "Nome do cliente ou empresa principal mencionada na reunião",
   "titulo_reuniao":   "Título descritivo da reunião (ex: 'Revisão de roadmap Q3')",
   "data_reuniao":     "DD/MM/YYYY — extraia da transcrição; se ausente, use a data do email",
@@ -32,9 +36,27 @@ Campos obrigatórios:
   "acionaveis":       ["Ação objetiva com responsável e prazo quando mencionados — máx. ~110 caracteres cada"],
   "proximos_passos":  ["Próximo passo acordado — máx. ~110 caracteres"],
   "alertas":          ["Risco ou insatisfação real, em frase objetiva — máx. ~110 caracteres — deixe [] se não houver"],
+  "oportunidades_comerciais": [
+    {{
+      "servico":      "Nome exato de um dos serviços do ecossistema GoAkira listados abaixo",
+      "justificativa": "Frase objetiva citando a dor/necessidade mencionada pelo cliente que se encaixa nesse serviço — máx. ~150 caracteres"
+    }}
+  ],
   "sentimento":       "positivo | neutro | preocupante",
   "prioridade":       "baixa | media | alta"
-}
+}}
+
+Critérios para "oportunidades_comerciais" — aplique com rigor, é um sinal de "levantada de mão"
+para o time comercial, então falsos positivos têm custo real:
+
+Catálogo de serviços do ecossistema GoAkira (fora do escopo do projeto atual em andamento):
+{_SERVICOS_LISTA}
+
+- Só sinalize um serviço se o cliente mencionar explicitamente uma dor, necessidade ou interesse
+  real que se encaixe claramente em um desses serviços — nunca invente ou force um encaixe
+- Não sinalize o serviço que já é objeto do projeto/reunião atual (ex: não sinalize "Formatação
+  de Franquias" numa reunião de consultoria de formatação de franquias)
+- Deixe [] se não houver nenhum sinal claro — a ausência de oportunidade é o caso mais comum
 
 Critérios de sentimento — aplique com precisão:
 

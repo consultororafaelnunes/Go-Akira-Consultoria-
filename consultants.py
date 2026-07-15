@@ -34,6 +34,24 @@ CONSULTANTS: dict[str, dict] = {
 # Consultor fixo para Briefing Jurídico (sempre Marco)
 JURIDICO_CONSULTANT = "Marco Paixão"
 
+# Catálogo de serviços do ecossistema GoAkira — usado pelo Claude para
+# reconhecer oportunidades comerciais ("levantada de mão") durante a
+# sumarização de reuniões: quando o cliente menciona uma dor/necessidade
+# que se encaixa em um desses serviços, fora do escopo do projeto atual.
+SERVICOS_GOAKIRA: list[str] = [
+    "Mentoria de Negócios",
+    "Consultoria Jurídica",
+    "Inteligência de Canais",
+    "Marketing para Varejo e Franquias",
+    "Arquitetura Comercial",
+    "Co-gestão de Franquias",
+    "Formatação de Franquias",
+    "Gestão e Otimização de Processos",
+    "Cursos e Treinamentos",
+    "Licenciamento de Negócios",
+    "Geomarketing",
+]
+
 # Consultoras de Manuais elegíveis para o prompt interativo
 MANUAIS_CONSULTANTS = ["Kelly Almeida", "Thais Andrade"]
 
@@ -46,14 +64,15 @@ MANUAIS_CONSULTANTS = ["Kelly Almeida", "Thais Andrade"]
 CLIENT_CONSULTANTS: dict[str, dict] = {
     # ── Rafael ────────────────────────────────────────────────────────────────
     "Açaí Island":        {"bp": "Rafael",        "ij": None,           "mn": None},
-    "Carrano":            {"bp": "Rafael",        "ij": None,           "mn": None},
+    "Carrano":            {"bp": ["Rafael", "Ivan Oréfice"], "ij": None, "mn": None},
+    "Urla Sorvetes":      {"bp": "Rafael",        "ij": None,           "mn": None},
     "Indústria da Coxinha":{"bp": "Rafael",       "ij": None,           "mn": None},
     "Softli":             {"bp": "Rafael",        "ij": None,           "mn": None},
     "Softli - Franqueado":{"bp": "Rafael",        "ij": None,           "mn": None},
     "Box2Fit":            {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
     "BW9":                {"bp": "Rafael",        "ij": None,           "mn": None},
-    "CWB Runner":         {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
-    "Far Consultoria":    {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
+    "CWB Runner":         {"bp": "Rafael",        "ij": "Marco Paixão", "mn": "Kelly Almeida"},
+    "Far Consultoria":    {"bp": "Rafael",        "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Idayo Sorvetes":     {"bp": "Rafael",        "ij": None,           "mn": "Kelly Almeida"},
     "Que Tutti de Minas": {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
     "We Flores":          {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
@@ -67,6 +86,7 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     "Canteiro Fácil":     {"bp": "Ivan Oréfice",  "ij": None,           "mn": None},
     "SPIB":               {"bp": "Ivan Oréfice",  "ij": None,           "mn": None},
     "Vizzela":            {"bp": "Ivan Oréfice",  "ij": None,           "mn": None},
+    "Santa Edwiges":      {"bp": "Ivan Oréfice",  "ij": None,           "mn": None},
 
     # ── Thais Andrade ─────────────────────────────────────────────────────────
     "Plaucius":           {"bp": "Thais Andrade", "ij": None,           "mn": None},
@@ -81,6 +101,7 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     "Loja do Queijo":     {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": None},
     "LR Imóveis":         {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Maçã Verde Sorvetes":{"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
+    "Duran Esquadrias":   {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": None},
 
     # ── Kelly Almeida (MN sem BP GoAkira) ────────────────────────────────────
     "Sai de Moto":        {"bp": None,            "ij": None,           "mn": "Kelly Almeida"},
@@ -102,9 +123,42 @@ def get_consultant_email(nome: str) -> str | None:
 
 
 def get_bp_consultant(cliente: str) -> str | None:
-    """Retorna o nome do consultor responsável pelo BP do cliente."""
+    """
+    Retorna o(s) nome(s) do(s) consultor(es) responsável(eis) pelo BP do cliente.
+    Alguns clientes têm mais de um BP (projeto conjunto) — nesse caso retorna
+    os nomes unidos por " & " para exibição.
+    """
     c = CLIENT_CONSULTANTS.get(cliente, {})
-    return c.get("bp")
+    bp = c.get("bp")
+    if isinstance(bp, list):
+        return " & ".join(bp) if bp else None
+    return bp
+
+
+def get_bp_consultants(cliente: str) -> list[str]:
+    """Retorna a lista de consultores responsáveis pelo BP do cliente (pode ter mais de um)."""
+    c = CLIENT_CONSULTANTS.get(cliente, {})
+    bp = c.get("bp")
+    if isinstance(bp, list):
+        return bp
+    return [bp] if bp else []
+
+
+def get_fase_reuniao(cliente: str, consultor: str | None) -> str:
+    """
+    Retorna a fase do projeto ("BP", "Jurídico" ou "Manuais") a que uma
+    reunião pertence, comparando quem de fato a conduziu (consultor, pasta de
+    origem no Drive) com os responsáveis de cada fase cadastrados para o
+    cliente. Cai em "BP" por padrão quando não há correspondência (ex:
+    consultor não informado, ou cliente com BP conjunto).
+    """
+    c = CLIENT_CONSULTANTS.get(cliente, {})
+    if consultor:
+        if consultor == c.get("ij"):
+            return "Jurídico"
+        if consultor == c.get("mn"):
+            return "Manuais"
+    return "BP"
 
 
 def get_juridico_email() -> str:

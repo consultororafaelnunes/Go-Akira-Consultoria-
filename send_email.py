@@ -39,6 +39,8 @@ def _build_html(summaries: list[dict]) -> str:
         )
         cliente   = s.get("cliente", "—")
         consultor = _get_consultor(cliente)
+        fase      = s.get("fase", "BP")
+        duracao   = s.get("duracao_estimada", "—")
         rows += f"""
         <tr>
           <td style="padding:10px 14px;border-bottom:1px solid #e0e4f0">
@@ -46,6 +48,8 @@ def _build_html(summaries: list[dict]) -> str:
             <span style="font-size:11px;color:#64748B">{consultor}</span>
           </td>
           <td style="padding:10px 14px;border-bottom:1px solid #e0e4f0">{s.get("titulo_reuniao","—")}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #e0e4f0">{fase}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #e0e4f0">{duracao}</td>
           <td style="padding:10px 14px;border-bottom:1px solid #e0e4f0;color:{color};font-weight:bold">{sent.capitalize()}</td>
           <td style="padding:10px 14px;border-bottom:1px solid #e0e4f0">{ata_btn}</td>
         </tr>"""
@@ -70,6 +74,8 @@ def _build_html(summaries: list[dict]) -> str:
             <tr style="background:#1E2761;color:#CADCFC">
               <th style="padding:10px 14px;text-align:left">Cliente · Consultor</th>
               <th style="padding:10px 14px;text-align:left">Reunião</th>
+              <th style="padding:10px 14px;text-align:left">Fase</th>
+              <th style="padding:10px 14px;text-align:left">Duração</th>
               <th style="padding:10px 14px;text-align:left">Sentimento</th>
               <th style="padding:10px 14px;text-align:left">Ata</th>
             </tr>
@@ -159,6 +165,75 @@ def send_ata_notification(summary: dict, ata_link: str, destinatario_email: str)
         s.send_message(msg)
 
     print(f"   Notificação enviada para {destinatario_email}")
+
+
+def send_opportunity_alert(summary: dict, consultor_email: str | None) -> None:
+    """
+    Envia a "levantada de mão" comercial — alerta imediato quando o Claude
+    identifica, durante a sumarização, uma oportunidade de outro serviço do
+    ecossistema GoAkira mencionada pelo cliente. Vai para o consultor
+    responsável (se houver email mapeado) + diretoria, na hora, sem esperar
+    o relatório diário.
+    """
+    oportunidades = summary.get("oportunidades_comerciais") or []
+    if not oportunidades:
+        return
+
+    cliente    = summary.get("cliente", "Cliente")
+    titulo     = summary.get("titulo_reuniao", "Reunião")
+    data       = summary.get("data_reuniao", date.today().strftime("%d/%m/%Y"))
+    consultor  = summary.get("consultor", "—")
+
+    itens_html = "".join(
+        f"<li style='margin-bottom:8px'><b>{o.get('servico','—')}</b><br>"
+        f"<span style='color:#374151'>{o.get('justificativa','—')}</span></li>"
+        for o in oportunidades
+    )
+
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px">
+      <div style="background:#1E2761;padding:24px 28px;border-radius:10px 10px 0 0">
+        <h2 style="color:#CADCFC;margin:0;font-size:20px">🖐️ Levantada de Mão — Oportunidade Comercial</h2>
+        <p style="color:#8899CC;margin:6px 0 0;font-size:13px">{cliente} · {data} · {consultor}</p>
+      </div>
+      <div style="background:#F7F9FF;padding:20px 28px;border:1px solid #e0e4f0;border-top:none;border-radius:0 0 10px 10px">
+        <p style="margin:0 0 4px"><b style="color:#1E2761">Reunião:</b> {titulo}</p>
+        <p style="margin:16px 0 6px;font-weight:bold;color:#1E2761">Serviço(s) identificado(s)</p>
+        <ul style="margin:0 0 16px;padding-left:20px;font-size:13px">
+          {itens_html}
+        </ul>
+        <p style="font-size:12px;color:#64748B">
+          Sinalizado automaticamente pelo Agente de Reuniões a partir da transcrição — vale
+          confirmar com o cliente antes de qualquer abordagem comercial.
+        </p>
+        <p style="font-size:11px;color:#94A3B8;margin-top:20px;text-align:center">
+          Gerado automaticamente · Agente de Reuniões GoAkira
+        </p>
+      </div>
+    </body></html>"""
+
+    recipients = list(dict.fromkeys(  # dedup preservando ordem
+        ([consultor_email] if consultor_email else []) + _get_directors_emails()
+    ))
+    if not recipients:
+        print("   Aviso: nenhum destinatário para o alerta de oportunidade comercial")
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"[GoAkira] 🖐️ Oportunidade comercial — {cliente} — {data}"
+    msg["From"] = (
+        f"{os.environ.get('SENDER_NAME', 'Agente GoAkira')} "
+        f"<{os.environ['SMTP_USER']}>"
+    )
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    with smtplib.SMTP_SSL(host, 465) as s:
+        s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+        s.sendmail(os.environ["SMTP_USER"], recipients, msg.as_string())
+
+    print(f"   Alerta de oportunidade comercial enviado para: {', '.join(recipients)}")
 
 
 def _get_directors_emails() -> list[str]:

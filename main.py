@@ -222,8 +222,15 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
             summaries,
             root_folder_id=os.environ.get("DRIVE_ROOT_FOLDER_ID"),
         )
+
+        # 3b: Alertas de oportunidade comercial ("levantada de mão")
+        from consultants import get_consultant_email
+        from send_email import send_opportunity_alert
+        for s in summaries:
+            if s.get("oportunidades_comerciais"):
+                send_opportunity_alert(s, get_consultant_email(s.get("consultor", "")))
     else:
-        print("🔍 Dry-run — criação de atas pulada")
+        print("🔍 Dry-run — criação de atas e alertas de oportunidade pulados")
 
     # 4: Gerar PDF
     from generate_pdf import generate_pdf
