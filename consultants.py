@@ -101,7 +101,7 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     "Loja do Queijo":     {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": None},
     "LR Imóveis":         {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Maçã Verde Sorvetes":{"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
-    "Duran Esquadrias":   {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": None},
+    "Duran Esquadrias":   {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
 
     # ── Kelly Almeida (MN sem BP GoAkira) ────────────────────────────────────
     "Sai de Moto":        {"bp": None,            "ij": None,           "mn": "Kelly Almeida"},
