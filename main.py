@@ -224,11 +224,21 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
         )
 
         # 3b: Alertas de oportunidade comercial ("levantada de mão")
-        from consultants import get_consultant_email
-        from send_email import send_opportunity_alert
-        for s in summaries:
-            if s.get("oportunidades_comerciais"):
-                send_opportunity_alert(s, get_consultant_email(s.get("consultor", "")))
+        # PAUSADO em 16/07/2026 — critério de detecção gerando falsos positivos
+        # (ex: sinalizando o próprio serviço já em andamento com o cliente).
+        # Reativar trocando para "True" assim que o prompt for calibrado.
+        OPPORTUNITY_ALERTS_ENABLED = False
+        if OPPORTUNITY_ALERTS_ENABLED:
+            from consultants import get_consultant_email
+            from send_email import send_opportunity_alert
+            for s in summaries:
+                if s.get("oportunidades_comerciais"):
+                    send_opportunity_alert(s, get_consultant_email(s.get("consultor", "")))
+        else:
+            n = sum(1 for s in summaries if s.get("oportunidades_comerciais"))
+            if n:
+                print(f"   ℹ️  {n} oportunidade(s) comercial(is) identificada(s) hoje — "
+                      f"envio de alerta pausado para calibração (ver summaries_*.json)")
     else:
         print("🔍 Dry-run — criação de atas e alertas de oportunidade pulados")
 
