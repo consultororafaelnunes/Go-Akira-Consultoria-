@@ -30,7 +30,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 from drive_folders import resolve_atas_folder, get_client_folder_id, PASTA_RAIZ_CLIENTES
-from consultants import get_bp_consultant, get_consultant_email
+from consultants import get_responsible_consultants, get_consultant_email
 from send_email import send_ata_notification
 
 
@@ -277,16 +277,21 @@ def create_meeting_minutes(
         file_id, link = upload_docx_to_drive(drive_service, tmp_path, nome_arquivo, atas_folder_id)
         print(f"   Salva no Drive: {link}")
 
-        # 4. Notifica o consultor responsável pelo BP do cliente
-        consultor = get_bp_consultant(cliente)
-        email     = get_consultant_email(consultor) if consultor else None
-        if email:
-            try:
-                send_ata_notification(summary, link, email)
-            except Exception as e:
-                print(f"   Aviso: falha ao enviar notificação para {email}: {e}")
+        # 4. Notifica o(s) consultor(es) responsável(eis) pela FASE da reunião
+        # (Jurídico/Manuais notifica quem de fato conduz aquela fase, não
+        # sempre o BP — ver get_responsible_consultants)
+        consultores = get_responsible_consultants(cliente, summary.get("fase"))
+        if consultores:
+            for consultor in consultores:
+                email = get_consultant_email(consultor)
+                if not email:
+                    continue
+                try:
+                    send_ata_notification(summary, link, email)
+                except Exception as e:
+                    print(f"   Aviso: falha ao enviar notificação para {email}: {e}")
         else:
-            print(f"   Aviso: consultor de BP não mapeado para '{cliente}' — notificação não enviada")
+            print(f"   Aviso: consultor responsável não mapeado para '{cliente}' — notificação não enviada")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

@@ -162,6 +162,25 @@ def get_fase_reuniao(cliente: str, consultor: str | None) -> str:
     return "BP"
 
 
+def get_responsible_consultants(cliente: str, fase: str | None) -> list[str]:
+    """
+    Retorna o(s) consultor(es) responsável(eis) pela FASE da reunião (não
+    sempre o BP) — usado para notificação de ata. Uma reunião de Jurídico
+    ou Manuais deve notificar quem de fato conduz aquela fase, com o BP
+    como fallback apenas quando a fase não tem consultor mapeado.
+    """
+    c = CLIENT_CONSULTANTS.get(cliente, {})
+    if fase == "Jurídico":
+        ij = c.get("ij")
+        if ij:
+            return [ij]
+    elif fase == "Manuais":
+        mn = c.get("mn")
+        if mn:
+            return [mn]
+    return get_bp_consultants(cliente)
+
+
 def get_juridico_email() -> str:
     """E-mail do responsável por Instrumentos Jurídicos (sempre Marco)."""
     return CONSULTANTS[JURIDICO_CONSULTANT]["email"]
