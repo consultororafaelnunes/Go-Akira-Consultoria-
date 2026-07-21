@@ -41,6 +41,7 @@ _ALIASES: dict[str, str] = {
     # Far Consultoria
     "far consultoria": "Far Consultoria",
     "far consulting":  "Far Consultoria",
+    "far":             "Far Consultoria",
 
     # Idayo Sorvetes
     "idayo sorvetes": "Idayo Sorvetes",
@@ -127,6 +128,7 @@ _ALIASES: dict[str, str] = {
 
     # Migak
     "migak": "Migak",
+    "migak & goakira": "Migak",
 
     # IBF
     "ibf": "IBF",
@@ -152,6 +154,10 @@ _ALIASES: dict[str, str] = {
     # Vizzela
     "vizzela": "Vizzela",
     "vizela":  "Vizzela",
+
+    # Santa Edwiges
+    "santa edwiges":    "Santa Edwiges",
+    "santa de edwiges": "Santa Edwiges",
 
     # CTA
     "cta":            "CTA",
@@ -179,12 +185,13 @@ _ALIASES: dict[str, str] = {
 # Projetos ainda em andamento (fase consultiva ativa)
 PROJETOS_ATIVOS: set[str] = {
     # Rafael
-    "Açaí Island", "Carrano", "Indústria da Coxinha", "Softli - Franqueado",
+    "Açaí Island", "Carrano", "Convicção Editora", "Indústria da Coxinha",
+    "Softli - Franqueado", "Urla Sorvetes",
     # Ivan
-    "Colégio Bal", "IBF", "Laftech", "Gradisa",
+    "Colégio Bal", "IBF", "Laftech", "Gradisa", "Santa Edwiges",
     # Thais
     "Plaucius", "Grupo Amo", "Migak", "Meraki Gyros", "Sorvetes Capricho",
-    "Farragoni Café", "App Launch", "Citroni Brokers",
+    "Farragoni Café", "App Launch", "Citroni Brokers", "Duran Esquadrias",
     # Kelly (MN ativo)
     "Maçã Verde Sorvetes", "LR Imóveis", "People Telecom",
     # Ivan

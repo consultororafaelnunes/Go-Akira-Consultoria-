@@ -65,6 +65,7 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     # ── Rafael ────────────────────────────────────────────────────────────────
     "Açaí Island":        {"bp": "Rafael",        "ij": None,           "mn": None},
     "Carrano":            {"bp": ["Rafael", "Ivan Oréfice"], "ij": None, "mn": None},
+    "Convicção Editora":  {"bp": ["Rafael", "Ivan Oréfice"], "ij": None, "mn": None},
     "Urla Sorvetes":      {"bp": "Rafael",        "ij": None,           "mn": None},
     "Indústria da Coxinha":{"bp": "Rafael",       "ij": None,           "mn": None},
     "Softli":             {"bp": "Rafael",        "ij": None,           "mn": None},
