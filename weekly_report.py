@@ -45,20 +45,28 @@ def _meeting_in_range(s: dict, start: date, end: date) -> bool:
 
 
 def _load_week_summaries(start: date, end: date, summaries_dir: str = ".") -> list[dict]:
-    """Carrega todos os resumos de arquivos summaries_YYYY-MM-DD.json da semana."""
+    """
+    Carrega os resumos da semana filtrando pela data REAL da reunião
+    (data_reuniao), não pelo nome do arquivo em que foram salvos — uma
+    reunião de sexta processada tardiamente na segunda seguinte (ex: falha
+    de agendamento, backfill) fica salva num arquivo fora da janela da
+    semana, mas ainda precisa aparecer no relatório daquela semana.
+    """
     summaries = []
-    current = start
-    while current <= end:
-        path = Path(summaries_dir) / f"summaries_{current.isoformat()}.json"
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                for s in data:
-                    s["_date"] = current.isoformat()
-                summaries.extend(data)
-            except Exception as e:
-                print(f"   Aviso: erro ao ler {path.name} — {e}")
-        current += timedelta(days=1)
+    seen_ids = set()
+    for path in sorted(Path(summaries_dir).glob("summaries_*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"   Aviso: erro ao ler {path.name} — {e}")
+            continue
+        for s in data:
+            mid = s.get("_message_id")
+            if mid and mid in seen_ids:
+                continue
+            if mid:
+                seen_ids.add(mid)
+            summaries.append(s)
     return [s for s in summaries if _meeting_in_range(s, start, end)]
 
 
