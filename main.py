@@ -301,6 +301,16 @@ def run_backfill(cliente: str, dry_run: bool = False) -> None:
         print(f"Nenhuma transcricao encontrada para '{cliente_norm}'.")
         return
 
+    ja_processados = _already_processed_ids()
+    antes = len(transcripts)
+    transcripts = [t for t in transcripts if t.get("message_id") not in ja_processados]
+    puladas = antes - len(transcripts)
+    if puladas:
+        print(f"   {puladas} reuniao(oes) ja processada(s) anteriormente — pulando para evitar ata duplicada")
+    if not transcripts:
+        print(f"Nenhuma transcricao NOVA para '{cliente_norm}' — tudo ja processado.")
+        return
+
     print(f"\n{len(transcripts)} transcricao(oes) encontrada(s). Sumarizando...")
     summaries = summarize_all(transcripts)
     if not summaries:
