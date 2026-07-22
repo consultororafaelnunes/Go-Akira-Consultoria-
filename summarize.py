@@ -56,6 +56,9 @@ Catálogo de serviços do ecossistema GoAkira (fora do escopo do projeto atual e
   real que se encaixe claramente em um desses serviços — nunca invente ou force um encaixe
 - Não sinalize o serviço que já é objeto do projeto/reunião atual (ex: não sinalize "Formatação
   de Franquias" numa reunião de consultoria de formatação de franquias)
+- A mensagem do usuário inclui uma linha "Escopo já contratado por este cliente com a GoAkira" —
+  NUNCA sinalize um serviço que já esteja descrito ali, mesmo que pareça se encaixar no catálogo;
+  isso é o projeto em andamento, não uma oportunidade nova
 - Deixe [] se não houver nenhum sinal claro — a ausência de oportunidade é o caso mais comum
 
 Critérios de sentimento — aplique com precisão:
@@ -120,9 +123,19 @@ def summarize_transcript(transcript: dict) -> dict | None:
     """
     client = _get_client()
 
+    escopo_line = ""
+    if transcript.get("cliente"):
+        from consultants import get_escopo_contratado
+        escopo_line = (
+            f"\nEscopo já contratado por este cliente com a GoAkira — NÃO sinalize "
+            f"esses serviços em 'oportunidades_comerciais', são o projeto atual, não "
+            f"uma oportunidade nova: {get_escopo_contratado(transcript['cliente'])}\n"
+        )
+
     user_content = (
         f"Assunto do email: {transcript.get('subject', '')}\n"
-        f"Data do email: {transcript.get('date', date.today().strftime('%d/%m/%Y'))}\n\n"
+        f"Data do email: {transcript.get('date', date.today().strftime('%d/%m/%Y'))}\n"
+        f"{escopo_line}\n"
         f"--- TRANSCRIÇÃO ---\n"
         f"{_truncate(transcript['transcript'])}\n"
         f"--- FIM ---\n\n"

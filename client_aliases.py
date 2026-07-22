@@ -122,6 +122,7 @@ _ALIASES: dict[str, str] = {
     # Citroni Brokers
     "citroni brokers": "Citroni Brokers",
     "citroni":         "Citroni Brokers",
+    "critroni":        "Citroni Brokers",  # erro de digitação usado nos títulos reais do calendário
 
     # Grupo Amo
     "grupo amo": "Grupo Amo",

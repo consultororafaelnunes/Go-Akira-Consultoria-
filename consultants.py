@@ -38,18 +38,34 @@ JURIDICO_CONSULTANT = "Marco Paixão"
 # reconhecer oportunidades comerciais ("levantada de mão") durante a
 # sumarização de reuniões: quando o cliente menciona uma dor/necessidade
 # que se encaixa em um desses serviços, fora do escopo do projeto atual.
+#
+# IMPORTANTE (revisado em 22/07/2026, a partir do material de kick-off
+# "Convicção Editora - Consultoria - Kick Off.pptx.pdf"): o projeto de
+# Formatação de Franquias tem 8 etapas fixas (Kick Off, BP Franqueado,
+# Viabilidade Franqueado, BP Franqueador, Viabilidade Franqueador, Estudo e
+# Plano de Expansão, Instrumentos Jurídicos, Processos e Manualização) que já
+# entregam, DENTRO do mesmo contrato: geomarketing, consultoria jurídica,
+# manualização, consultoria financeira, funil comercial, pesquisa de mercado
+# e treinamentos — nenhum desses é oportunidade nova para quem já contratou
+# o pacote completo (ver get_escopo_contratado()). Por isso a lista abaixo
+# contém só serviços de OUTROS pilares do ecossistema — coisas que um
+# cliente de Formatação de Franquias normalmente NÃO tem incluído.
 SERVICOS_GOAKIRA: list[str] = [
-    "Mentoria de Negócios",
-    "Consultoria Jurídica",
-    "Inteligência de Canais",
-    "Marketing para Varejo e Franquias",
-    "Arquitetura Comercial",
-    "Co-gestão de Franquias",
-    "Formatação de Franquias",
-    "Gestão e Otimização de Processos",
-    "Cursos e Treinamentos",
-    "Licenciamento de Negócios",
-    "Geomarketing",
+    "Desenvolvimento de Conceito e Formatação Física de PDV/Loja",
+    "Integração de Canais e Estratégia Omnichannel",
+    "Business Valuation",
+    "Registro de Marcas",
+    "Associação ABF",
+    "Licenciamento de Marcas",
+    "Criação de Dashboard/BI",
+    "Geração de Leads (Inbound) para Venda de Franquias",
+    "Geração de Leads B2B",
+    "Marketing para E-commerce",
+    "Branding",
+    "Expansão Terceirizada / Broker de Ponto Comercial",
+    "Captação de Investidores (Portal Goakira Invest)",
+    "Curso/Palestra sobre Investir em Franquias",
+    "Participação em Eventos do Setor (NRF, SXSW, Retail Tours)",
 ]
 
 # Consultoras de Manuais elegíveis para o prompt interativo
@@ -75,7 +91,7 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     "CWB Runner":         {"bp": "Rafael",        "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Far Consultoria":    {"bp": "Rafael",        "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Idayo Sorvetes":     {"bp": "Rafael",        "ij": None,           "mn": "Kelly Almeida"},
-    "Que Tutti de Minas": {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
+    "Que Tutti de Minas": {"bp": "Rafael",        "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "We Flores":          {"bp": "Rafael",        "ij": "Marco Paixão", "mn": None},
 
     # ── Ivan Oréfice ──────────────────────────────────────────────────────────
@@ -112,6 +128,17 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     "Tubarão do Açaí":    {"bp": None,            "ij": None,           "mn": "Kelly Almeida"},
     "Ipanema Papéis":     {"bp": None,            "ij": None,           "mn": "Kelly Almeida"},
     "Keystone":           {"bp": None,            "ij": None,           "mn": "Kelly Almeida"},
+}
+
+
+# ── Escopo já contratado (contexto p/ detecção de oportunidade comercial) ──────
+
+# Nota livre por cliente sobre serviços já contratados/entregues que NÃO
+# aparecem na estrutura BP/Jurídico/Manuais abaixo (ex: projeto pontual já
+# fechado, serviço avulso já realizado). Preencher conforme cada falso
+# positivo real for identificado nos alertas de "levantada de mão" — não
+# precisa (nem faz sentido) preencher para todos os clientes de uma vez.
+CLIENT_ESCOPO_EXTRA: dict[str, str] = {
 }
 
 
@@ -179,6 +206,42 @@ def get_responsible_consultants(cliente: str, fase: str | None) -> list[str]:
         if mn:
             return [mn]
     return get_bp_consultants(cliente)
+
+
+_ESCOPO_FORMATACAO_FRANQUIAS = (
+    "Projeto completo de Formatação de Franquias contratado — inclui as 8 etapas fixas da "
+    "metodologia (Kick Off, Business Plan do Franqueado, Viabilidade Econômica do Franqueado, "
+    "Business Plan do Franqueador, Viabilidade Econômica do Franqueador, Estudo e Plano de "
+    "Expansão — inclui geomarketing —, Instrumentos Jurídicos — COF/contrato —, e Processos e "
+    "Manualização). Mesmo que a etapa específica ainda não tenha começado para este cliente, "
+    "TODAS essas entregas (geomarketing, consultoria jurídica, manualização, consultoria "
+    "financeira, funil comercial, pesquisa de mercado, treinamentos de onboarding/gestão) já "
+    "são escopo contratado, não oportunidade nova."
+)
+
+
+def get_escopo_contratado(cliente: str) -> str:
+    """
+    Resume o que o cliente já tem contratado com a GoAkira, para dar contexto
+    ao Claude na hora de detectar "oportunidades comerciais" (levantada de
+    mão) — evita sinalizar como nova oportunidade um serviço que já está em
+    andamento ou que já faz parte do pacote de Formatação de Franquias.
+    Combina o que já sabemos estruturalmente (CLIENT_CONSULTANTS) com notas
+    livres cadastradas em CLIENT_ESCOPO_EXTRA. Ver SERVICOS_GOAKIRA para a
+    lista do que fica de fora desse pacote padrão (oportunidades genuínas).
+    """
+    c = CLIENT_CONSULTANTS.get(cliente, {})
+    partes = []
+    if c.get("bp"):
+        partes.append(_ESCOPO_FORMATACAO_FRANQUIAS)
+    if c.get("ij") and not c.get("bp"):
+        partes.append("Consultoria Jurídica (Instrumentos Jurídicos) já contratada")
+    if c.get("mn") and not c.get("bp"):
+        partes.append("Manuais Operacionais já contratados")
+    extra = CLIENT_ESCOPO_EXTRA.get(cliente)
+    if extra:
+        partes.append(extra)
+    return " ".join(partes) if partes else "sem registro de escopo contratado"
 
 
 def get_juridico_email() -> str:

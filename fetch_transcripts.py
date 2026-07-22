@@ -37,6 +37,7 @@ from drive_folders import MEET_RECORDINGS_FOLDERS
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly",
 ]
 
 GDOC_MIME = "application/vnd.google-apps.document"

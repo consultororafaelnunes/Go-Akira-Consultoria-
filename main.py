@@ -37,7 +37,7 @@ import calendar
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -210,8 +210,14 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
         print("\nℹ️  Nenhum resumo gerado.")
         return []
 
-    # Persiste JSON (fonte para o relatório mensal)
-    json_path = Path(f"summaries_{date.today().isoformat()}.json")
+    # Persiste JSON (fonte para o relatório mensal e para a deduplicação de
+    # próximas execuções). Em --dry-run salva com prefixo separado
+    # ("dryrun_summaries_") para NÃO entrar no glob "summaries_*.json" usado
+    # por _already_processed_ids()/relatório mensal — senão uma reunião real
+    # processada durante um dry-run de teste ficaria marcada como "já
+    # processada" sem nunca ter gerado ata de verdade.
+    prefixo = "dryrun_summaries_" if dry_run else "summaries_"
+    json_path = Path(f"{prefixo}{date.today().isoformat()}.json")
     json_path.write_text(json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n💾 Resumos salvos: {json_path}")
 
@@ -224,10 +230,10 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
         )
 
         # 3b: Alertas de oportunidade comercial ("levantada de mão")
-        # PAUSADO em 16/07/2026 — critério de detecção gerando falsos positivos
-        # (ex: sinalizando o próprio serviço já em andamento com o cliente).
-        # Reativar trocando para "True" assim que o prompt for calibrado.
-        OPPORTUNITY_ALERTS_ENABLED = False
+        # Reativado em 21/07/2026 sem recalibrar o prompt — monitorar os
+        # próximos envios de perto (já houve falso positivo em produção:
+        # serviço já em andamento sinalizado como oportunidade nova).
+        OPPORTUNITY_ALERTS_ENABLED = True
         if OPPORTUNITY_ALERTS_ENABLED:
             from consultants import get_consultant_email
             from send_email import send_opportunity_alert
@@ -242,6 +248,19 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
     else:
         print("🔍 Dry-run — criação de atas e alertas de oportunidade pulados")
 
+    # 3c: Verificar cancelamentos/reagendamentos reais na agenda dos consultores
+    # (via Google Calendar API — não depende de a transcrição ter chegado no Drive)
+    dias_calendario = max(1, -(-hours_back // 24))
+    cal_start = date.today() - timedelta(days=dias_calendario - 1)
+    try:
+        from calendar_sync import get_calendar_changes
+        calendar_changes = get_calendar_changes(cal_start, date.today())
+        if calendar_changes:
+            print(f"   📅 {len(calendar_changes)} alteração(ões) de agenda detectada(s)")
+    except Exception as e:
+        print(f"   Aviso: falha ao verificar alterações de agenda — {e}")
+        calendar_changes = []
+
     # 4: Gerar PDF
     from generate_pdf import generate_pdf
     pdf_bytes = generate_pdf(summaries)
@@ -254,7 +273,7 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
         print(f"\n🔍 Dry-run — email NÃO enviado. Arquivo: {pdf_path}")
     else:
         from send_email import send_report
-        send_report(summaries, pdf_bytes)
+        send_report(summaries, pdf_bytes, calendar_changes)
 
     print("\n" + "=" * 60)
     print("✅ Pipeline diário concluído!")

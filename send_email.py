@@ -22,11 +22,14 @@ def _get_consultor(cliente: str) -> str:
         return "—"
 
 
-def _build_html(summaries: list[dict]) -> str:
+def _build_html(summaries: list[dict], calendar_changes: list[dict] | None = None) -> str:
     sent_counts = Counter(s.get("sentimento", "neutro") for s in summaries)
     n_alerts    = sum(1 for s in summaries if s.get("alertas"))
     clientes    = len(set(s.get("cliente", "") for s in summaries))
     today       = date.today().strftime("%d/%m/%Y")
+
+    from calendar_sync import render_changes_html
+    changes_section = render_changes_html(calendar_changes or [])
 
     rows = ""
     for s in summaries:
@@ -69,6 +72,7 @@ def _build_html(summaries: list[dict]) -> str:
       </div>
       <div style="background:#F7F9FF;padding:20px 28px;border:1px solid #e0e4f0;border-top:none;border-radius:0 0 10px 10px">
         {alert_banner}
+        {changes_section}
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
             <tr style="background:#1E2761;color:#CADCFC">
@@ -242,7 +246,7 @@ def _get_directors_emails() -> list[str]:
     return [e.strip() for e in raw.split(",") if e.strip()]
 
 
-def send_report(summaries: list[dict], pdf_bytes: bytes) -> None:
+def send_report(summaries: list[dict], pdf_bytes: bytes, calendar_changes: list[dict] | None = None) -> None:
     """Envia o resumo diário para todos os diretores (HTML + PDF em anexo)."""
     recipients = _get_directors_emails()
     if not recipients:
@@ -263,7 +267,7 @@ def send_report(summaries: list[dict], pdf_bytes: bytes) -> None:
     )
     msg["To"] = ", ".join(recipients)
 
-    msg.attach(MIMEText(_build_html(summaries), "html", "utf-8"))
+    msg.attach(MIMEText(_build_html(summaries, calendar_changes), "html", "utf-8"))
 
     att = MIMEBase("application", "pdf")
     att.set_payload(pdf_bytes)

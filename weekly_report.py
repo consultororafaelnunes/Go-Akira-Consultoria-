@@ -112,10 +112,14 @@ def _sentiment_badge(sent: str) -> str:
     )
 
 
-def _build_html(grouped: dict[str, list[dict]], start: date, end: date) -> str:
+def _build_html(grouped: dict[str, list[dict]], start: date, end: date,
+                 calendar_changes: list[dict] | None = None) -> str:
     total = sum(len(v) for v in grouped.values())
     n_clientes = len({s.get("cliente", "") for v in grouped.values() for s in v})
     n_alertas = sum(1 for v in grouped.values() for s in v if s.get("alertas"))
+
+    from calendar_sync import render_changes_html
+    changes_section = render_changes_html(calendar_changes or [])
 
     alert_banner = ""
     if n_alertas:
@@ -200,6 +204,7 @@ def _build_html(grouped: dict[str, list[dict]], start: date, end: date) -> str:
       <div style="background:#F7F9FF;padding:24px 28px;border:1px solid #e0e4f0;
                   border-top:none;border-radius:0 0 10px 10px">
         {alert_banner}
+        {changes_section}
         {consultant_sections}
         <p style="font-size:11px;color:#94A3B8;text-align:center;margin-top:8px">
           Gerado automaticamente · Agente de Reuniões GoAkira · Claude Haiku 4.5
@@ -220,7 +225,16 @@ def send_weekly_report(summaries_dir: str = ".") -> None:
     grouped = _group_by_consultant(summaries)
     print(f"   {len(summaries)} reunião(ões) · {len(grouped)} consultor(es)")
 
-    html = _build_html(grouped, start, end)
+    try:
+        from calendar_sync import get_calendar_changes
+        calendar_changes = get_calendar_changes(start, end)
+        if calendar_changes:
+            print(f"   📅 {len(calendar_changes)} alteração(ões) de agenda detectada(s)")
+    except Exception as e:
+        print(f"   Aviso: falha ao verificar alterações de agenda — {e}")
+        calendar_changes = []
+
+    html = _build_html(grouped, start, end, calendar_changes)
     pdf_bytes = generate_weekly_pdf(grouped, start, end)
 
     raw = os.environ.get("DIRECTORS_EMAILS", os.environ.get("RECIPIENT_EMAIL", ""))
