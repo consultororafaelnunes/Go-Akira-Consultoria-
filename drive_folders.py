@@ -45,6 +45,20 @@ CLIENT_FOLDERS: dict[str, str] = {
     "Que Tutti de Minas":   "1o6mDW579TMW63mgOUViQqa6pFJt22kxN",
     "Softli":               "1LP8lxIgzi5giWApA6xk5r45818DzLDYX",
     "We Flores":            "14OZ3KxgdBzJd7STOSeldGw-0XXCXR1E-",
+    # Adicionados em 24/07/2026 — resolvendo os avisos de "pasta fallback"
+    # encontrados na auditoria semanal (clientes existem no Drive, só não
+    # estavam cadastrados aqui ainda).
+    "Gradisa":              "1qZtpNuw39tBGUQLp4UoWVPYHyhPH6IeJ",
+    "Citroni Brokers":      "1JlRP_HLw4eb7A0EJApYtp2CUPRZKfC0E",
+    "Sorvetes Capricho":    "1L3u4xxVR2gXMOHqsh6ScHtE829H6AkAN",
+    "Convicção Editora":    "1W8EdJ26vsvptKPmrvNR4oY0okyH_AVNu",
+    "Urla Sorvetes":        "1QMWorRzyuUNFCw78nAtBi18FtIffGkKK",
+    "Duran Esquadrias":     "1doR4rfBkdTscg28aqnS61ftYyHkTO1j6",
+    "Maçã Verde Sorvetes":  "1CfflGAr4IBwPwh2bx-i3knNetM40CDmM",
+    "Grupo Amo":            "1w22I1N2xnVNt2E70Y6q5A6ruPhrrxQ6M",
+    "Migak":                "1kCLSCbG36an7Xl-ITTf6774ZN21fDLIa",
+    # Bonus: encontrado durante a mesma varredura, também faltava
+    "App Launch":           "1lrEf80NLNPW_kfbkVuonGg6YBByb557N",
 }
 
 

@@ -50,18 +50,35 @@ JURIDICO_CONSULTANT = "Marco Paixão"
 # o pacote completo (ver get_escopo_contratado()). Por isso a lista abaixo
 # contém só serviços de OUTROS pilares do ecossistema — coisas que um
 # cliente de Formatação de Franquias normalmente NÃO tem incluído.
+#
+# Atualizado em 22/07/2026 com os itens específicos das duas empresas irmãs
+# do ecossistema (materiais institucionais "POTENCIALIZEE.pdf" e
+# "GDESIGN.pdf"), no lugar de rótulos genéricos como "Branding" isolado:
+#   - Potencializee = marketing/performance (pilar "Campanhas de Expansão,
+#     Branding & Performance Digital&Física")
+#   - GDesign = arquitetura comercial/PDV (pilar "Design de Loja, Experiência
+#     do Cliente & Padrão Visual")
 SERVICOS_GOAKIRA: list[str] = [
-    "Desenvolvimento de Conceito e Formatação Física de PDV/Loja",
+    # Potencializee (marketing)
+    "Construção de Marca — Naming, Identidade Verbal e Visual",
+    "Reposicionamento e Arquitetura Estratégica de Marca",
+    "Social Media Estratégico (Gestão de Redes Sociais)",
+    "Performance e Mídia Paga (Tráfego Pago)",
+    "Marketing para E-commerce",
+    "Geração de Leads (Inbound) para Venda de Franquias",
+    "Geração de Leads B2B",
+    # GDesign (arquitetura comercial / PDV)
+    "Desenvolvimento de Conceito e Projeto Piloto de Loja/PDV",
+    "Visual Merchandising",
+    "Comunicação Visual do Ponto de Venda",
+    "Projeto Arquitetônico de Rollout e Guia de Padronização",
+    # Outros pilares do ecossistema
     "Integração de Canais e Estratégia Omnichannel",
     "Business Valuation",
     "Registro de Marcas",
     "Associação ABF",
     "Licenciamento de Marcas",
     "Criação de Dashboard/BI",
-    "Geração de Leads (Inbound) para Venda de Franquias",
-    "Geração de Leads B2B",
-    "Marketing para E-commerce",
-    "Branding",
     "Expansão Terceirizada / Broker de Ponto Comercial",
     "Captação de Investidores (Portal Goakira Invest)",
     "Curso/Palestra sobre Investir em Franquias",
@@ -108,7 +125,7 @@ CLIENT_CONSULTANTS: dict[str, dict] = {
     # ── Thais Andrade ─────────────────────────────────────────────────────────
     "Plaucius":           {"bp": "Thais Andrade", "ij": None,           "mn": None},
     "Grupo Amo":          {"bp": "Thais Andrade", "ij": None,           "mn": "Kelly Almeida"},
-    "Migak":              {"bp": "Thais Andrade", "ij": None,           "mn": None},
+    "Migak":              {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": None},
     "Meraki Gyros":       {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Sorvetes Capricho":  {"bp": "Thais Andrade", "ij": "Marco Paixão", "mn": "Kelly Almeida"},
     "Farragoni Café":     {"bp": "Thais Andrade", "ij": None,           "mn": "Thais Andrade"},

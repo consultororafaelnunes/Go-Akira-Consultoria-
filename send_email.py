@@ -216,8 +216,10 @@ def send_opportunity_alert(summary: dict, consultor_email: str | None) -> None:
       </div>
     </body></html>"""
 
+    raw_extra = os.environ.get("OPPORTUNITY_EXTRA_RECIPIENTS", "")
     recipients = list(dict.fromkeys(  # dedup preservando ordem
         ([consultor_email] if consultor_email else []) + _get_directors_emails()
+        + [e.strip() for e in raw_extra.split(",") if e.strip()]
     ))
     if not recipients:
         print("   Aviso: nenhum destinatário para o alerta de oportunidade comercial")
@@ -248,7 +250,10 @@ def _get_directors_emails() -> list[str]:
 
 def send_report(summaries: list[dict], pdf_bytes: bytes, calendar_changes: list[dict] | None = None) -> None:
     """Envia o resumo diário para todos os diretores (HTML + PDF em anexo)."""
-    recipients = _get_directors_emails()
+    raw_extra = os.environ.get("DAILY_EXTRA_RECIPIENTS", "")
+    recipients = list(dict.fromkeys(  # dedup preservando ordem
+        _get_directors_emails() + [e.strip() for e in raw_extra.split(",") if e.strip()]
+    ))
     if not recipients:
         print("   Aviso: nenhum destinatário configurado em DIRECTORS_EMAILS")
         return

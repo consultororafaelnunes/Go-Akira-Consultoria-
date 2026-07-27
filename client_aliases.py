@@ -117,7 +117,12 @@ _ALIASES: dict[str, str] = {
     "wg10 (essencia de fiori)":  "WG10",
 
     # App Launch
-    "app launch": "App Launch",
+    "app launch":            "App Launch",
+    "app launch & goakira":  "App Launch",  # variante de nome de arquivo usada em algumas reuniões
+
+    # Migak (opera também sob a marca Sijan)
+    "migak e sijan":  "Migak",
+    "migak & sijan":  "Migak",
 
     # Citroni Brokers
     "citroni brokers": "Citroni Brokers",

@@ -238,7 +238,11 @@ def send_weekly_report(summaries_dir: str = ".") -> None:
     pdf_bytes = generate_weekly_pdf(grouped, start, end)
 
     raw = os.environ.get("DIRECTORS_EMAILS", os.environ.get("RECIPIENT_EMAIL", ""))
-    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+    raw_extra = os.environ.get("WEEKLY_EXTRA_RECIPIENTS", "")
+    recipients = list(dict.fromkeys(  # dedup preservando ordem
+        [e.strip() for e in raw.split(",") if e.strip()]
+        + [e.strip() for e in raw_extra.split(",") if e.strip()]
+    ))
     if not recipients:
         print("   Aviso: nenhum destinatário configurado em DIRECTORS_EMAILS")
         return
