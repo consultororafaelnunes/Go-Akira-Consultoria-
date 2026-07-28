@@ -24,8 +24,11 @@ Uso:
 import argparse
 import json
 import os
+import smtplib
 import sys
 from datetime import date, datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -165,6 +168,70 @@ def imprimir_relatorio(inicio: date, fim: date, resultado: dict) -> bool:
     return ok
 
 
+def enviar_alerta_furos(inicio: date, fim: date, sem_ata: list[dict], unparsed: list) -> None:
+    """
+    Envia e-mail de alerta quando há reuniões de cliente sem ata.
+    Mesmo padrão do monitor_agente.py: SMTP_SSL, destinatário = AUDIT_ALERT_EMAIL
+    ou, na falta dele, SMTP_USER. Só deve ser chamado quando sem_ata não está vazio.
+    """
+    destino = os.environ.get("AUDIT_ALERT_EMAIL") or os.environ.get("SMTP_USER", "c10@goakira.com.br")
+
+    if inicio == fim:
+        periodo = inicio.strftime("%d/%m/%Y")
+    else:
+        periodo = f"{inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}"
+
+    itens = "".join(
+        f"<li style='margin-bottom:4px;color:#DC2626'>"
+        f"{r['data'].strftime('%d/%m')} · [{r['consultor']}] {r['cliente']} · {r['assunto'][:60]}"
+        f"</li>"
+        for r in sorted(sem_ata, key=lambda x: (x["data"], x["consultor"], x["cliente"]))
+    )
+    nota_unparsed = ""
+    if unparsed:
+        nota_unparsed = (
+            f"<p style='font-size:12px;color:#92400E;margin-top:12px'>"
+            f"Além disso, {len(unparsed)} arquivo(s) com nome não reconhecido na janela "
+            f"(provável reunião interna — revisar se alguma é de cliente).</p>"
+        )
+
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px">
+      <div style="background:#DC2626;padding:20px 28px;border-radius:10px 10px 0 0">
+        <h2 style="color:#fff;margin:0;font-size:18px">Auditoria GoAkira — Furo de Cobertura</h2>
+        <p style="color:#FFD5D5;margin:6px 0 0;font-size:13px">{periodo}</p>
+      </div>
+      <div style="background:#FFF7F7;padding:20px 28px;border:1px solid #FCA5A5;border-top:none;border-radius:0 0 10px 10px">
+        <p style="color:#374151;margin-bottom:12px">
+          {len(sem_ata)} reunião(ões) de cliente sem ata gerada:
+        </p>
+        <ul style="padding-left:20px;font-size:13px">{itens}</ul>
+        {nota_unparsed}
+        <hr style="border:none;border-top:1px solid #FCA5A5;margin:16px 0">
+        <p style="font-size:12px;color:#374151;margin:0">
+          Para gerar as atas faltantes:
+          <code style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px">
+          python main.py --backfill --cliente "Nome do Cliente"</code>
+        </p>
+        <p style="font-size:11px;color:#94A3B8;margin-top:16px;text-align:center">
+          Auditoria de Cobertura do Agente de Reuniões GoAkira
+        </p>
+      </div>
+    </body></html>"""
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"[GoAkira · ALERTA] Furo de cobertura de atas — {periodo}"
+    msg["From"] = f"Auditoria GoAkira <{os.environ['SMTP_USER']}>"
+    msg["To"] = destino
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL(os.environ.get("SMTP_HOST", "smtp.gmail.com"), 465) as s:
+        s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+        s.sendmail(os.environ["SMTP_USER"], [destino], msg.as_string())
+
+    print(f"[{datetime.now():%H:%M}] Alerta de furo enviado para {destino}")
+
+
 def main() -> None:
     load_dotenv()
 
@@ -172,6 +239,8 @@ def main() -> None:
     parser.add_argument("--data", type=_parse_data, help="Dia único (DD/MM/YYYY ou YYYY-MM-DD)")
     parser.add_argument("--de", type=_parse_data, help="Início do intervalo")
     parser.add_argument("--ate", type=_parse_data, help="Fim do intervalo")
+    parser.add_argument("--alertar", action="store_true",
+                        help="Envia e-mail de alerta se houver furo (uso agendado na VPS)")
     args = parser.parse_args()
 
     if args.de or args.ate:
@@ -188,6 +257,14 @@ def main() -> None:
 
     resultado = auditar(inicio, fim)
     ok = imprimir_relatorio(inicio, fim, resultado)
+
+    sem_ata = [r for r in resultado["rows"] if not r["processed"]]
+    if args.alertar and sem_ata:
+        try:
+            enviar_alerta_furos(inicio, fim, sem_ata, resultado["unparsed"])
+        except Exception as e:
+            print(f"Aviso: falha ao enviar alerta de furo — {e}")
+
     sys.exit(0 if ok else 2)
 
 

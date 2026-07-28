@@ -42,8 +42,10 @@ agendados; o **schedule + a janela** é que deixavam o vão.
 
 Furos silenciosos só apareciam por auditoria manual (a da Patrícia, 14/07, achou
 86 reuniões nunca processadas). Agora `audit_cobertura.py` roda todo dia depois
-do diário, compara reuniões×atas e registra furos em `auditoria.log`
-(exit code 2). Rodar manualmente para uma data/intervalo:
+do diário, compara reuniões×atas, registra furos em `auditoria.log`
+(exit code 2) e — com o flag `--alertar` (usado pela tarefa agendada) —
+**envia e-mail de alerta** quando há reunião de cliente sem ata, no mesmo padrão
+do monitor. Rodar manualmente para uma data/intervalo (sem enviar e-mail):
 
 ```powershell
 python audit_cobertura.py                    # ontem
@@ -63,9 +65,12 @@ O motivo de existir desta migração: o notebook dormia/desligava e derrubava o
 agendamento. A VPS 24/7 elimina isso — mas as melhorias 1 e 2 acima continuam
 valendo como defesa em profundidade (a VPS também reinicia, atualiza, cai).
 
-> **Próximo passo ainda aberto:** hoje a auditoria só *registra* o furo no log.
-> Falta ligar um alerta por e-mail (como o monitor já faz) para o furo chegar
-> a alguém sem precisar abrir o log. Anotado como melhoria futura.
+> **Validar na migração:** o alerta por e-mail da auditoria (`--alertar`) já está
+> implementado no código e na tarefa agendada. Falta apenas **confirmar em produção
+> na VPS** que o e-mail chega — force um furo controlado (ex.:
+> `python audit_cobertura.py --data <um dia com reunião sem ata> --alertar`) e veja
+> se o alerta chega. Destinatário: `AUDIT_ALERT_EMAIL` no `.env` (opcional; se
+> ausente, cai para `SMTP_USER`, igual ao monitor).
 
 ## Passo 1 — Pré-requisitos
 

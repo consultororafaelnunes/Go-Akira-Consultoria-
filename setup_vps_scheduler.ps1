@@ -60,15 +60,16 @@ echo === %DATE% %TIME% FINALIZADO === >> monitor.log
 "@ | Set-Content -Path $BatMonitor -Encoding ASCII
 
 # Auditoria de cobertura: roda depois do diario e checa se toda reuniao de
-# cliente de ontem virou ata. Exit code 2 quando ha furo (fica registrado no
-# auditoria.log). E a rede de seguranca que teria pego a Acai Island no mesmo dia.
+# cliente de ontem virou ata. --alertar envia e-mail (padrao do monitor) quando
+# ha furo; sempre registra no auditoria.log (exit code 2 quando ha furo).
+# E a rede de seguranca que teria pego a Acai Island no mesmo dia.
 @"
 @echo off
 chcp 65001 > nul
 set PYTHONUTF8=1
 cd /d "$ScriptDir"
 echo === %DATE% %TIME% INICIADO === >> auditoria.log
-"$PythonCmd" audit_cobertura.py >> auditoria.log 2>&1
+"$PythonCmd" audit_cobertura.py --alertar >> auditoria.log 2>&1
 echo === %DATE% %TIME% FINALIZADO === >> auditoria.log
 "@ | Set-Content -Path $BatAuditoria -Encoding ASCII
 
