@@ -15,6 +15,58 @@ notebook dorme ou desliga. O objetivo desta migração é rodar o mesmo pipeline
 neste VPS (que fica ligado 24/7), usando a mesma arquitetura (Windows +
 Task Scheduler), só que num servidor sempre disponível.
 
+## Lições aprendidas (por que a VPS já nasce diferente do notebook)
+
+Estas melhorias vêm de incidentes reais de produção — a VPS deve incorporá-las
+desde o primeiro dia. Já estão embutidas no `setup_vps_scheduler.ps1`; esta
+seção explica o *porquê* para quem for manter.
+
+### 1. Janela de busca de 72h + agendar segunda-feira (furo de cobertura)
+
+**O que aconteceu:** em 28/07/2026, uma auditoria encontrou uma reunião de
+cliente (Açaí Island, sexta 24/07) que nunca virou ata. Causa raiz: o diário
+rodava **ter–sex** com janela de **24h**. Uma reunião de sexta à tarde (depois
+do run das 08:30) só seria pega no run seguinte — que era **terça**, cuja janela
+de 24h volta apenas até segunda. O intervalo sexta-tarde→terça ficava
+descoberto. Não foi falha de máquina: os runs aconteceram exatamente nos dias
+agendados; o **schedule + a janela** é que deixavam o vão.
+
+**Correção (já aplicada no script):**
+- Diário passa a rodar **seg–sex** (segunda incluída).
+- Janela ampliada para **72h** (`main.py --hours 72`). A deduplicação por
+  `_message_id` (em `summaries_*.json`) impede ata duplicada, então ampliar a
+  janela só tem upside: qualquer dia sem execução (reinício da VPS, feriado)
+  **se autocura** no próximo run, em vez de virar um buraco permanente.
+
+### 2. Auditoria de cobertura automática (rede de segurança)
+
+Furos silenciosos só apareciam por auditoria manual (a da Patrícia, 14/07, achou
+86 reuniões nunca processadas). Agora `audit_cobertura.py` roda todo dia depois
+do diário, compara reuniões×atas e registra furos em `auditoria.log`
+(exit code 2). Rodar manualmente para uma data/intervalo:
+
+```powershell
+python audit_cobertura.py                    # ontem
+python audit_cobertura.py --data 27/07/2026
+python audit_cobertura.py --de 20/07/2026 --ate 27/07/2026
+```
+
+Quando a auditoria acusar furo, gerar as atas faltantes com o backfill:
+
+```powershell
+python main.py --backfill --cliente "Nome do Cliente"
+```
+
+### 3. Fim da dependência de hardware local
+
+O motivo de existir desta migração: o notebook dormia/desligava e derrubava o
+agendamento. A VPS 24/7 elimina isso — mas as melhorias 1 e 2 acima continuam
+valendo como defesa em profundidade (a VPS também reinicia, atualiza, cai).
+
+> **Próximo passo ainda aberto:** hoje a auditoria só *registra* o furo no log.
+> Falta ligar um alerta por e-mail (como o monitor já faz) para o furo chegar
+> a alguém sem precisar abrir o log. Anotado como melhoria futura.
+
 ## Passo 1 — Pré-requisitos
 
 Verificar/instalar nesta máquina (Windows Server, EC2):
@@ -97,8 +149,20 @@ Se aparecer `Pipeline diário concluído!` sem erro de credenciais, está pronto
 
 Use o script `setup_vps_scheduler.ps1` (está na raiz do projeto). Ele gera os
 `.bat` de execução com o caminho real desta máquina (não usa os `.bat` do
-notebook local, que têm caminho fixo do OneDrive) e cria as 3 tarefas —
-diário (ter-sex 08:30), semanal (segunda 09:00) e monitor (ter-sex 09:30).
+notebook local, que têm caminho fixo do OneDrive) e cria as **4 tarefas**:
+
+| Tarefa | Quando | O que faz |
+|---|---|---|
+| Diário | **seg–sex 08:30** | `main.py --hours 72` — gera atas e relatório diário |
+| Auditoria | seg–sex 09:00 | `audit_cobertura.py` — confere se toda reunião de ontem virou ata |
+| Monitor | seg–sex 09:30 | avisa por e-mail se o diário falhou |
+| Semanal | segunda 09:00 | relatório semanal por consultor |
+
+> **Mudanças em relação ao notebook (leia a seção "Lições aprendidas" abaixo):**
+> o diário agora inclui **segunda** e usa **janela de 72h** (antes era ter–sex,
+> 24h), e há uma **tarefa nova de auditoria**. Isso fecha o vão de cobertura que
+> orfanou uma reunião real em produção.
+
 Rode como Administrador:
 
 ```powershell
@@ -127,6 +191,7 @@ Disable-ScheduledTask -TaskName "GoAkira - Monitor do Agente"
 - [ ] Dependências instaladas (`pip` + `npm`)
 - [ ] `.env` recriado com os valores reais
 - [ ] `python main.py --dry-run` rodou sem erro
-- [ ] Tarefas agendadas criadas (`setup_vps_scheduler.ps1`)
+- [ ] `python audit_cobertura.py` rodou sem erro (auditoria de cobertura)
+- [ ] As **4 tarefas** agendadas criadas (`setup_vps_scheduler.ps1`): diário seg–sex 08:30, auditoria 09:00, monitor 09:30, semanal segunda 09:00
 - [ ] Rodou em paralelo por alguns dias sem diferença
 - [ ] Task Scheduler do notebook local desabilitado

@@ -8,6 +8,7 @@ $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BatAgente   = Join-Path $ScriptDir "executar_agente_vps.bat"
 $BatSemanal  = Join-Path $ScriptDir "executar_semanal_vps.bat"
 $BatMonitor  = Join-Path $ScriptDir "executar_monitor_vps.bat"
+$BatAuditoria = Join-Path $ScriptDir "executar_auditoria_vps.bat"
 $Usuario     = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 Write-Host "Pasta do projeto detectada: $ScriptDir"
@@ -24,13 +25,17 @@ if (-not $PythonCmd) {
 }
 Write-Host "Python detectado: $PythonCmd"
 
+# Janela de 72h (nao 24h): a dedup por _message_id (summaries_*.json) impede ata
+# duplicada, entao ampliar a busca so tem upside — qualquer dia sem execucao
+# (fim de semana, VPS reiniciando) se autocura no proximo run. Foi exatamente o
+# vao sexta-tarde -> proximo run que orfanou uma reuniao real (Acai Island 24/07).
 @"
 @echo off
 chcp 65001 > nul
 set PYTHONUTF8=1
 cd /d "$ScriptDir"
 echo === %DATE% %TIME% INICIADO === >> agente.log
-"$PythonCmd" main.py >> agente.log 2>&1
+"$PythonCmd" main.py --hours 72 >> agente.log 2>&1
 echo === %DATE% %TIME% FINALIZADO === >> agente.log
 "@ | Set-Content -Path $BatAgente -Encoding ASCII
 
@@ -54,7 +59,20 @@ echo === %DATE% %TIME% INICIADO === >> monitor.log
 echo === %DATE% %TIME% FINALIZADO === >> monitor.log
 "@ | Set-Content -Path $BatMonitor -Encoding ASCII
 
-Write-Host "OK: .bat gerados (executar_agente_vps.bat, executar_semanal_vps.bat, executar_monitor_vps.bat)"
+# Auditoria de cobertura: roda depois do diario e checa se toda reuniao de
+# cliente de ontem virou ata. Exit code 2 quando ha furo (fica registrado no
+# auditoria.log). E a rede de seguranca que teria pego a Acai Island no mesmo dia.
+@"
+@echo off
+chcp 65001 > nul
+set PYTHONUTF8=1
+cd /d "$ScriptDir"
+echo === %DATE% %TIME% INICIADO === >> auditoria.log
+"$PythonCmd" audit_cobertura.py >> auditoria.log 2>&1
+echo === %DATE% %TIME% FINALIZADO === >> auditoria.log
+"@ | Set-Content -Path $BatAuditoria -Encoding ASCII
+
+Write-Host "OK: .bat gerados (agente, semanal, monitor, auditoria)"
 Write-Host ""
 
 # Como o VPS fica sempre ligado (sem bateria), so precisamos garantir que a
@@ -69,7 +87,9 @@ $Principal = New-ScheduledTaskPrincipal `
     -LogonType S4U `
     -RunLevel Highest
 
-# ── Tarefa 1: Pipeline diario (ter-sex 08:30) ─────────────────────────────────
+# ── Tarefa 1: Pipeline diario (seg-sex 08:30) ─────────────────────────────────
+# Segunda incluida de proposito: com janela de 72h, a run de segunda varre a
+# sexta a tarde e o fim de semana, fechando o vao que orfanou a Acai Island.
 
 $NomePipeline = "GoAkira - Agente de Reunioes"
 
@@ -81,7 +101,7 @@ if (Get-ScheduledTask -TaskName $NomePipeline -ErrorAction SilentlyContinue) {
 $AcaoPipeline = New-ScheduledTaskAction -Execute $BatAgente
 
 $GatilhoPipeline = New-ScheduledTaskTrigger `
-    -Weekly -DaysOfWeek Tuesday,Wednesday,Thursday,Friday -At "08:30"
+    -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "08:30"
 
 Register-ScheduledTask `
     -TaskName $NomePipeline `
@@ -89,9 +109,9 @@ Register-ScheduledTask `
     -Trigger $GatilhoPipeline `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Pipeline diario do Agente de Reunioes GoAkira - ter a sex as 08:30 (VPS)" | Out-Null
+    -Description "Pipeline diario do Agente de Reunioes GoAkira - seg a sex as 08:30, janela 72h (VPS)" | Out-Null
 
-Write-Host "OK: $NomePipeline (ter-sex 08:30)"
+Write-Host "OK: $NomePipeline (seg-sex 08:30, janela 72h)"
 
 # ── Tarefa 2: Resumo semanal (segunda 09:00) ──────────────────────────────────
 
@@ -129,7 +149,7 @@ if (Get-ScheduledTask -TaskName $NomeMonitor -ErrorAction SilentlyContinue) {
 $AcaoMonitor = New-ScheduledTaskAction -Execute $BatMonitor
 
 $GatilhoMonitor = New-ScheduledTaskTrigger `
-    -Weekly -DaysOfWeek Tuesday,Wednesday,Thursday,Friday -At "09:30"
+    -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "09:30"
 
 Register-ScheduledTask `
     -TaskName $NomeMonitor `
@@ -137,17 +157,44 @@ Register-ScheduledTask `
     -Trigger $GatilhoMonitor `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Monitor do pipeline diario GoAkira - avisa por e-mail em caso de falha - ter a sex as 09:30 (VPS)" | Out-Null
+    -Description "Monitor do pipeline diario GoAkira - avisa por e-mail em caso de falha - seg a sex as 09:30 (VPS)" | Out-Null
 
-Write-Host "OK: $NomeMonitor (ter-sex 09:30)"
+Write-Host "OK: $NomeMonitor (seg-sex 09:30)"
+
+# ── Tarefa 4: Auditoria de cobertura (seg-sex 09:00) ──────────────────────────
+# Roda entre o diario (08:30) e o monitor (09:30). Confere se toda reuniao de
+# cliente de ontem virou ata; registra furos em auditoria.log (exit code 2).
+
+$NomeAuditoria = "GoAkira - Auditoria de Cobertura"
+
+if (Get-ScheduledTask -TaskName $NomeAuditoria -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $NomeAuditoria -Confirm:$false
+    Write-Host "Tarefa anterior removida: $NomeAuditoria"
+}
+
+$AcaoAuditoria = New-ScheduledTaskAction -Execute $BatAuditoria
+
+$GatilhoAuditoria = New-ScheduledTaskTrigger `
+    -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "09:00"
+
+Register-ScheduledTask `
+    -TaskName $NomeAuditoria `
+    -Action $AcaoAuditoria `
+    -Trigger $GatilhoAuditoria `
+    -Settings $Settings `
+    -Principal $Principal `
+    -Description "Auditoria de cobertura de atas GoAkira - seg a sex as 09:00 (VPS)" | Out-Null
+
+Write-Host "OK: $NomeAuditoria (seg-sex 09:00)"
 
 # ── Resultado ──────────────────────────────────────────────────────────────────
 
 Write-Host ""
 Write-Host "Tarefas ativas neste VPS:"
-Write-Host "  Diario  : ter-sex as 08:30 -> $BatAgente"
-Write-Host "  Semanal : segunda as 09:00 -> $BatSemanal"
-Write-Host "  Monitor : ter-sex as 09:30 -> $BatMonitor"
+Write-Host "  Diario    : seg-sex as 08:30 (janela 72h) -> $BatAgente"
+Write-Host "  Auditoria : seg-sex as 09:00 -> $BatAuditoria"
+Write-Host "  Monitor   : seg-sex as 09:30 -> $BatMonitor"
+Write-Host "  Semanal   : segunda as 09:00 -> $BatSemanal"
 Write-Host ""
 Write-Host "Lembrete: confirme que o .env e o batch (.bat) apontam para este"
 Write-Host "caminho ($ScriptDir) antes de considerar a migracao concluida."
