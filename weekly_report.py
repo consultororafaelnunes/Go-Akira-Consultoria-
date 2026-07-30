@@ -213,7 +213,140 @@ def _build_html(grouped: dict[str, list[dict]], start: date, end: date,
     </body></html>"""
 
 
-def send_weekly_report(summaries_dir: str = ".") -> None:
+# ── Relatório individual por consultor ─────────────────────────────────────────
+
+def _group_by_responsible(summaries: list[dict]) -> dict[str, list[dict]]:
+    """
+    Agrupa por consultor RESPONSÁVEL pela fase de cada reunião — base do e-mail
+    individual. Diferente de _group_by_consultant (que credita o BP/gravador):
+    aqui uma reunião de Manuais conta para a consultora de Manuais, não para o BP.
+    """
+    try:
+        from consultants import get_fase_reuniao, get_responsible_consultants
+    except ImportError:
+        return {}
+    grouped = defaultdict(list)
+    for s in summaries:
+        cliente = s.get("cliente", "")
+        fase = get_fase_reuniao(cliente, s.get("consultor"))
+        for responsavel in get_responsible_consultants(cliente, fase):
+            if responsavel:
+                grouped[responsavel].append(s)
+    return dict(grouped)
+
+
+def _aggregate_items(meetings: list[dict], *keys: str) -> list[str]:
+    """Junta os itens de campos (proximos_passos, acionaveis, alertas) sem duplicar."""
+    itens: list[str] = []
+    for s in meetings:
+        for k in keys:
+            for it in (s.get(k) or []):
+                it = str(it).strip()
+                if it and it not in itens:
+                    itens.append(it)
+    return itens
+
+
+def _build_consultant_html(consultor: str, meetings: list[dict], start: date, end: date) -> str:
+    sem_inicio = start.strftime("%d/%m")
+    sem_fim    = end.strftime("%d/%m/%Y")
+
+    rows = ""
+    for s in sorted(meetings, key=lambda x: x.get("fase", "")):
+        ata = s.get("ata_link", "")
+        ata_btn = f'<a href="{ata}" style="font-size:11px;color:#1E2761">Ver ata →</a>' if ata else "—"
+        rows += f"""
+        <tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #e0e4f0;font-size:12px;color:#64748B;white-space:nowrap">{s.get("data_reuniao","—")}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e0e4f0;font-size:13px;color:#1E293B;font-weight:600">{s.get("cliente","—")}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e0e4f0;font-size:12px;color:#374151">{s.get("titulo_reuniao","—")}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e0e4f0;font-size:12px;color:#374151">{s.get("fase","BP")}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e0e4f0">{ata_btn}</td>
+        </tr>"""
+
+    proximos   = _aggregate_items(meetings, "proximos_passos", "acionaveis")
+    pendencias = _aggregate_items(meetings, "alertas")
+
+    def _lista(itens: list[str], cor: str) -> str:
+        if not itens:
+            return '<p style="font-size:12px;color:#94A3B8;margin:4px 0">—</p>'
+        return "<ul style='margin:4px 0;padding-left:18px'>" + "".join(
+            f"<li style='font-size:12px;color:{cor};margin-bottom:3px'>{i}</li>" for i in itens
+        ) + "</ul>"
+
+    pend_section = ""
+    if pendencias:
+        pend_section = f"""
+        <h3 style="font-size:14px;color:#DC2626;margin:18px 0 4px">Pendências / atenção</h3>
+        {_lista(pendencias, "#DC2626")}"""
+
+    return f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:24px">
+      <div style="background:#1E2761;padding:24px 28px;border-radius:10px 10px 0 0">
+        <h2 style="color:#CADCFC;margin:0;font-size:20px">Seu resumo semanal — {consultor}</h2>
+        <p style="color:#8899CC;margin:6px 0 0;font-size:13px">{sem_inicio} a {sem_fim} · {len(meetings)} reunião(ões)</p>
+      </div>
+      <div style="background:#F7F9FF;padding:22px 28px;border:1px solid #e0e4f0;border-top:none;border-radius:0 0 10px 10px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#1E2761">
+            <th style="padding:8px 10px;text-align:left;color:#CADCFC;font-size:11px">Data</th>
+            <th style="padding:8px 10px;text-align:left;color:#CADCFC;font-size:11px">Cliente</th>
+            <th style="padding:8px 10px;text-align:left;color:#CADCFC;font-size:11px">Reunião</th>
+            <th style="padding:8px 10px;text-align:left;color:#CADCFC;font-size:11px">Fase</th>
+            <th style="padding:8px 10px;text-align:left;color:#CADCFC;font-size:11px">Ata</th>
+          </tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        <h3 style="font-size:14px;color:#1E2761;margin:18px 0 4px">Próximos passos</h3>
+        {_lista(proximos, "#374151")}
+        {pend_section}
+        <p style="font-size:11px;color:#94A3B8;text-align:center;margin-top:18px">
+          Gerado automaticamente · Agente de Reuniões GoAkira
+        </p>
+      </div>
+    </body></html>"""
+
+
+def _send_consultant_emails(grouped_resp: dict[str, list[dict]], start: date, end: date,
+                            dry_run: bool = False) -> None:
+    """Envia um e-mail individual para cada consultor com ≥1 reunião na semana."""
+    from consultants import get_consultant_email
+    sem_inicio = start.strftime("%d/%m")
+    sem_fim    = end.strftime("%d/%m/%Y")
+    enviados = 0
+    for consultor, meetings in sorted(grouped_resp.items()):
+        if not meetings:
+            continue
+        email = get_consultant_email(consultor)
+        if not email:
+            print(f"   Aviso: '{consultor}' sem e-mail mapeado — resumo individual pulado")
+            continue
+        if dry_run:
+            print(f"   [dry-run] resumo individual → {consultor} <{email}>: {len(meetings)} reunião(ões)")
+            continue
+        try:
+            html = _build_consultant_html(consultor, meetings, start, end)
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"[GoAkira] Seu resumo semanal — {consultor} — {sem_inicio} a {sem_fim}"
+            msg["From"] = (
+                f"{os.environ.get('SENDER_NAME', 'Agente de Reuniões GoAkira')} "
+                f"<{os.environ['SMTP_USER']}>"
+            )
+            msg["To"] = email
+            msg.attach(MIMEText(html, "html", "utf-8"))
+            host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+            with smtplib.SMTP_SSL(host, 465) as s:
+                s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+                s.sendmail(os.environ["SMTP_USER"], [email], msg.as_string())
+            enviados += 1
+            print(f"   Resumo individual enviado para {consultor} <{email}>")
+        except Exception as e:
+            print(f"   Aviso: falha ao enviar resumo individual de {consultor} — {e}")
+    if not dry_run:
+        print(f"   {enviados} e-mail(s) individual(is) por consultor enviados")
+
+
+def send_weekly_report(summaries_dir: str = ".", dry_run: bool = False) -> None:
     start, end = _previous_week_range()
     print(f"Relatório semanal: {start.strftime('%d/%m')} a {end.strftime('%d/%m/%Y')}")
 
@@ -271,15 +404,26 @@ def send_weekly_report(summaries_dir: str = ".") -> None:
     )
     msg.attach(att)
 
-    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    with smtplib.SMTP_SSL(host, 465) as s:
-        s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
-        s.sendmail(os.environ["SMTP_USER"], recipients, msg.as_string())
+    if dry_run:
+        print(f"   [dry-run] consolidado iria para: {', '.join(recipients)}")
+    else:
+        host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+        with smtplib.SMTP_SSL(host, 465) as s:
+            s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+            s.sendmail(os.environ["SMTP_USER"], recipients, msg.as_string())
+        print(f"   Relatório semanal enviado para: {', '.join(recipients)}")
 
-    print(f"   Relatório semanal enviado para: {', '.join(recipients)}")
+    # Relatórios individuais por consultor (cada um só com as fases dele)
+    grouped_resp = _group_by_responsible(summaries)
+    _send_consultant_emails(grouped_resp, start, end, dry_run=dry_run)
 
 
 if __name__ == "__main__":
+    import argparse
     from dotenv import load_dotenv
     load_dotenv()
-    send_weekly_report()
+    parser = argparse.ArgumentParser(description="Relatório semanal GoAkira")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Não envia e-mails; só imprime destinatários e recortes por consultor")
+    args = parser.parse_args()
+    send_weekly_report(dry_run=args.dry_run)
