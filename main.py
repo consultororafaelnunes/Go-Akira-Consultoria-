@@ -230,21 +230,26 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
         )
 
         # 3b: Alertas de oportunidade comercial ("levantada de mão")
-        # Reativado em 21/07/2026 sem recalibrar o prompt — monitorar os
-        # próximos envios de perto (já houve falso positivo em produção:
-        # serviço já em andamento sinalizado como oportunidade nova).
+        # Calibrado em 31/07/2026 com o gatilho semântico de qualificação
+        # (summarize.py): o alerta imediato dispara SÓ para oportunidades
+        # "qualificadas" — aquelas em que a conversa liga a necessidade a um
+        # handoff nominal com o responsável comercial (Bianca/GDesign,
+        # Fabiana|Naka/Potencializee e Consultoria). "menção de contexto"
+        # (sem handoff) fica só no registro/relatório semanal, sem alerta —
+        # foi o que gerou falsos positivos antes da calibragem.
         OPPORTUNITY_ALERTS_ENABLED = True
         if OPPORTUNITY_ALERTS_ENABLED:
             from consultants import get_consultant_email
             from send_email import send_opportunity_alert
             for s in summaries:
-                if s.get("oportunidades_comerciais"):
-                    send_opportunity_alert(s, get_consultant_email(s.get("consultor", "")))
-        else:
-            n = sum(1 for s in summaries if s.get("oportunidades_comerciais"))
-            if n:
-                print(f"   ℹ️  {n} oportunidade(s) comercial(is) identificada(s) hoje — "
-                      f"envio de alerta pausado para calibração (ver summaries_*.json)")
+                ops = s.get("oportunidades_comerciais") or []
+                quals = [o for o in ops if (o.get("grau") or "").lower() == "qualificada"]
+                if quals:
+                    s_alerta = {**s, "oportunidades_comerciais": quals}
+                    send_opportunity_alert(s_alerta, get_consultant_email(s.get("consultor", "")))
+                elif ops:
+                    print(f"   ℹ️  {len(ops)} menção(ões) de contexto em '{s.get('cliente','—')}' "
+                          f"(sem handoff nominal) — alerta não disparado, ver relatório semanal")
     else:
         print("🔍 Dry-run — criação de atas e alertas de oportunidade pulados")
 

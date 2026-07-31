@@ -9,6 +9,7 @@ $BatAgente   = Join-Path $ScriptDir "executar_agente_vps.bat"
 $BatSemanal  = Join-Path $ScriptDir "executar_semanal_vps.bat"
 $BatMonitor  = Join-Path $ScriptDir "executar_monitor_vps.bat"
 $BatAuditoria = Join-Path $ScriptDir "executar_auditoria_vps.bat"
+$BatLevantadas = Join-Path $ScriptDir "executar_levantadas_vps.bat"
 $Usuario     = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 Write-Host "Pasta do projeto detectada: $ScriptDir"
@@ -73,7 +74,20 @@ echo === %DATE% %TIME% INICIADO === >> auditoria.log
 echo === %DATE% %TIME% FINALIZADO === >> auditoria.log
 "@ | Set-Content -Path $BatAuditoria -Encoding ASCII
 
-Write-Host "OK: .bat gerados (agente, semanal, monitor, auditoria)"
+# Levantadas de Mao (semanal, segunda 07:00): consolida as oportunidades
+# comerciais QUALIFICADAS/mencoes da semana que fechou (--anterior = seg-sex
+# passada). Destinatarios vem de LEVANTADAS_RECIPIENTS no .env.
+@"
+@echo off
+chcp 65001 > nul
+set PYTHONUTF8=1
+cd /d "$ScriptDir"
+echo === %DATE% %TIME% INICIADO === >> levantadas.log
+"$PythonCmd" weekly_levantadas.py --anterior >> levantadas.log 2>&1
+echo === %DATE% %TIME% FINALIZADO === >> levantadas.log
+"@ | Set-Content -Path $BatLevantadas -Encoding ASCII
+
+Write-Host "OK: .bat gerados (agente, semanal, monitor, auditoria, levantadas)"
 Write-Host ""
 
 # Como o VPS fica sempre ligado (sem bateria), so precisamos garantir que a
@@ -188,14 +202,41 @@ Register-ScheduledTask `
 
 Write-Host "OK: $NomeAuditoria (seg-sex 09:00)"
 
+# ── Tarefa 5: Levantadas de Mao (segunda 07:00) ───────────────────────────────
+# Consolida as oportunidades comerciais da semana que fechou. Roda antes do
+# resumo semanal (09:00) para chegar cedo na caixa da diretoria/comercial.
+
+$NomeLevantadas = "GoAkira - Levantadas de Mao"
+
+if (Get-ScheduledTask -TaskName $NomeLevantadas -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $NomeLevantadas -Confirm:$false
+    Write-Host "Tarefa anterior removida: $NomeLevantadas"
+}
+
+$AcaoLevantadas = New-ScheduledTaskAction -Execute $BatLevantadas
+
+$GatilhoLevantadas = New-ScheduledTaskTrigger `
+    -Weekly -DaysOfWeek Monday -At "07:00"
+
+Register-ScheduledTask `
+    -TaskName $NomeLevantadas `
+    -Action $AcaoLevantadas `
+    -Trigger $GatilhoLevantadas `
+    -Settings $Settings `
+    -Principal $Principal `
+    -Description "Resumo semanal das levantadas de mao (oportunidades comerciais) GoAkira - segunda as 07:00 (VPS)" | Out-Null
+
+Write-Host "OK: $NomeLevantadas (segunda 07:00)"
+
 # ── Resultado ──────────────────────────────────────────────────────────────────
 
 Write-Host ""
 Write-Host "Tarefas ativas neste VPS:"
+Write-Host "  Levantadas: segunda as 07:00 -> $BatLevantadas"
 Write-Host "  Diario    : seg-sex as 08:30 (janela 72h) -> $BatAgente"
 Write-Host "  Auditoria : seg-sex as 09:00 -> $BatAuditoria"
-Write-Host "  Monitor   : seg-sex as 09:30 -> $BatMonitor"
 Write-Host "  Semanal   : segunda as 09:00 -> $BatSemanal"
+Write-Host "  Monitor   : seg-sex as 09:30 -> $BatMonitor"
 Write-Host ""
 Write-Host "Lembrete: confirme que o .env e o batch (.bat) apontam para este"
 Write-Host "caminho ($ScriptDir) antes de considerar a migracao concluida."

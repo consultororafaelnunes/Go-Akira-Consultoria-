@@ -85,6 +85,65 @@ SERVICOS_GOAKIRA: list[str] = [
     "Participação em Eventos do Setor (NRF, SXSW, Retail Tours)",
 ]
 
+# ── Responsáveis comerciais por pilar (gatilho semântico da "levantada de mão") ─
+#
+# Calibragem: uma oportunidade só é uma "levantada de mão" QUALIFICADA quando a
+# conversa liga a necessidade do cliente a um handoff/oferta envolvendo o
+# responsável comercial daquele pilar (ex.: "posso marcar uma agenda com a
+# Bianca para você entender o que a GDesign faz?"). Se o serviço aparece só
+# como tema do projeto, sem esse vínculo comercial, é MENÇÃO de contexto — não
+# uma oportunidade a acionar. Cada entrada: pilar → (responsáveis, serviços).
+RESPONSAVEIS_COMERCIAIS: dict[str, dict] = {
+    "GDesign (arquitetura comercial / design de loja e PDV)": {
+        "responsaveis": ["Bianca"],
+        "servicos": [
+            "Desenvolvimento de Conceito e Projeto Piloto de Loja/PDV",
+            "Visual Merchandising",
+            "Comunicação Visual do Ponto de Venda",
+            "Projeto Arquitetônico de Rollout e Guia de Padronização",
+        ],
+    },
+    "Potencializee (marketing, branding e performance)": {
+        "responsaveis": ["Fabiana", "Naka"],
+        "servicos": [
+            "Construção de Marca — Naming, Identidade Verbal e Visual",
+            "Reposicionamento e Arquitetura Estratégica de Marca",
+            "Social Media Estratégico (Gestão de Redes Sociais)",
+            "Performance e Mídia Paga (Tráfego Pago)",
+            "Marketing para E-commerce",
+            "Geração de Leads (Inbound) para Venda de Franquias",
+            "Geração de Leads B2B",
+        ],
+    },
+    # Fabiana e Naka também respondem pela Consultoria (demais serviços do
+    # ecossistema fora de GDesign/Potencializee).
+    "Consultoria (demais serviços do ecossistema GoAkira)": {
+        "responsaveis": ["Fabiana", "Naka"],
+        "servicos": [
+            "Integração de Canais e Estratégia Omnichannel",
+            "Business Valuation",
+            "Registro de Marcas",
+            "Associação ABF",
+            "Licenciamento de Marcas",
+            "Criação de Dashboard/BI",
+            "Expansão Terceirizada / Broker de Ponto Comercial",
+            "Captação de Investidores (Portal Goakira Invest)",
+            "Curso/Palestra sobre Investir em Franquias",
+            "Participação em Eventos do Setor (NRF, SXSW, Retail Tours)",
+        ],
+    },
+}
+
+
+def render_responsaveis_comerciais() -> str:
+    """Texto pronto para injetar no prompt de sumarização (gatilho de qualificação)."""
+    linhas = []
+    for pilar, dados in RESPONSAVEIS_COMERCIAIS.items():
+        nomes = " ou ".join(dados["responsaveis"])
+        linhas.append(f"  - {pilar} → responsável comercial: {nomes}")
+    return "\n".join(linhas)
+
+
 # Consultoras de Manuais elegíveis para o prompt interativo
 MANUAIS_CONSULTANTS = ["Kelly Almeida", "Thais Andrade"]
 
