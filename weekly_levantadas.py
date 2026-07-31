@@ -288,7 +288,10 @@ def build_empty_html(start: date, end: date) -> str:
     </body></html>"""
 
 
-def send(html: str, recipients: list[str], start: date, end: date, n_itens: int) -> None:
+def send(html: str, recipients: list[str], start: date, end: date, n_itens: int,
+         max_retries: int = 4) -> None:
+    import time
+
     sem = f"{start.strftime('%d/%m')} a {end.strftime('%d/%m')}"
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"[GoAkira] Levantadas de Mão — Semana {sem} ({n_itens})"
@@ -297,10 +300,36 @@ def send(html: str, recipients: list[str], start: date, end: date, n_itens: int)
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    with smtplib.SMTP_SSL(host, 465) as s:
-        s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
-        s.sendmail(os.environ["SMTP_USER"], recipients, msg.as_string())
-    print(f"   E-mail enviado para: {', '.join(recipients)}")
+    payload = msg.as_string()
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with smtplib.SMTP_SSL(host, 465, timeout=60) as s:
+                s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+                s.sendmail(os.environ["SMTP_USER"], recipients, payload)
+            print(f"   E-mail enviado para: {', '.join(recipients)}")
+            return
+        except smtplib.SMTPAuthenticationError as e:
+            # 535 BadCredentials: app password errada/expirada — retry não resolve,
+            # mas registramos com destaque para o monitor pegar.
+            print(f"   ❌ Falha de AUTENTICAÇÃO SMTP (535?) — verifique SMTP_PASSWORD "
+                  f"(app password): {e}")
+            last_exc = e
+            break
+        except (smtplib.SMTPException, OSError) as e:
+            last_exc = e
+            if attempt < max_retries:
+                wait = 15 * attempt
+                print(f"   Aviso: falha no envio (tentativa {attempt}/{max_retries}) — "
+                      f"aguardando {wait}s... [{type(e).__name__}: {e}]")
+                time.sleep(wait)
+
+    # Esgotou as tentativas: erro explícito (exit != 0) para o log/monitor não
+    # deixarem passar em silêncio — "nao deixar ter falhas de envio".
+    raise RuntimeError(
+        f"Falha ao enviar Levantadas de Mão após {max_retries} tentativa(s) "
+        f"para {recipients}: {last_exc}"
+    )
 
 
 def run(de: str | None, ate: str | None, to: str | None, dry_run: bool,
