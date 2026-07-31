@@ -127,24 +127,26 @@ def _esc(t: str) -> str:
     return (str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+def _is_qualificada(r: dict) -> bool:
+    return (r.get("grau") or "").lower() == "qualificada"
+
+
 def _grau_badge(r: dict) -> str:
-    """Selo de qualificação da levantada (qualificada / menção / histórico sem grau)."""
-    grau = r.get("grau", "")
-    if grau == "qualificada":
+    """Selo de qualificação. Tudo que não é 'qualificada' é menção (topo do funil)."""
+    if _is_qualificada(r):
         resp = r.get("responsavel_citado") or ""
         extra = f" · {_esc(resp)}" if resp else ""
         return (f"<span style='margin-left:6px;display:inline-block;background:{TEAL};color:#fff;"
                 f"font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px'>🎯 Qualificada{extra}</span>")
-    if grau == "mencao":
-        return (f"<span style='margin-left:6px;display:inline-block;background:#EEF2F7;color:{SLATE};"
-                f"font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px'>menção de contexto</span>")
-    return ""  # histórico sem classificação: não mostra selo
+    return (f"<span style='margin-left:6px;display:inline-block;background:#EEF2F7;color:{SLATE};"
+            f"font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px'>menção de contexto</span>")
 
 
 def build_html(itens: list[dict], start: date, end: date) -> str:
     sem = f"{start.strftime('%d/%m')} a {end.strftime('%d/%m/%Y')}"
     n_itens = len(itens)
-    n_qual = sum(1 for i in itens if i.get("grau") == "qualificada")
+    n_qual = sum(1 for i in itens if _is_qualificada(i))
+    n_mencao = n_itens - n_qual
     clientes = sorted(set(i["cliente"] for i in itens))
     servico_counts = Counter(i["servico"] for i in itens)
     reunioes = len(set((i["cliente"], i["data"], i["titulo"]) for i in itens))
@@ -223,16 +225,16 @@ def build_html(itens: list[dict], start: date, end: date) -> str:
             <div style="font-size:11px;color:{SLATE}">Levantadas</div>
           </div>
           <div style="background:#F7F9FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #e0e4f0">
+            <div style="font-size:28px;font-weight:700;color:{SLATE}">{n_mencao}</div>
+            <div style="font-size:11px;color:{SLATE}">Menções (topo)</div>
+          </div>
+          <div style="background:#F7F9FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #e0e4f0">
             <div style="font-size:28px;font-weight:700;color:{TEAL}">{n_qual}</div>
             <div style="font-size:11px;color:{SLATE}">Qualificadas 🎯</div>
           </div>
           <div style="background:#F7F9FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #e0e4f0">
             <div style="font-size:28px;font-weight:700;color:{NAVY}">{len(clientes)}</div>
             <div style="font-size:11px;color:{SLATE}">Clientes</div>
-          </div>
-          <div style="background:#F7F9FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #e0e4f0">
-            <div style="font-size:28px;font-weight:700;color:{NAVY}">{len(servico_counts)}</div>
-            <div style="font-size:11px;color:{SLATE}">Serviços</div>
           </div>
         </div>
 
@@ -262,6 +264,26 @@ def build_html(itens: list[dict], start: date, end: date) -> str:
         <p style="font-size:11px;color:#94A3B8;text-align:center">
           Gerado automaticamente · Agente de Reuniões GoAkira · "Levantada de mão" = oportunidade comercial detectada nas reuniões
         </p>
+      </div>
+    </body></html>"""
+
+
+def build_empty_html(start: date, end: date) -> str:
+    sem = f"{start.strftime('%d/%m')} a {end.strftime('%d/%m/%Y')}"
+    return f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:24px;background:#F7F9FF">
+      <div style="background:{NAVY};padding:26px 28px 20px;border-radius:10px 10px 0 0">
+        <h2 style="color:{ICE};margin:0;font-size:22px">🖐️ Levantadas de Mão — Semana</h2>
+        <p style="color:#8899CC;margin:8px 0 0;font-size:13px">Resumo das oportunidades comerciais abertas nas reuniões · {sem}</p>
+      </div>
+      <div style="background:#fff;padding:28px;border:1px solid #e0e4f0;border-top:none;border-radius:0 0 10px 10px;text-align:center">
+        <div style="font-size:40px">✅</div>
+        <p style="font-size:15px;color:{NAVY};font-weight:700;margin:8px 0 4px">Nenhuma levantada de mão nesta semana</p>
+        <p style="font-size:13px;color:{SLATE};margin:0;line-height:1.5">
+          Nenhuma oportunidade de outro serviço do ecossistema foi sinalizada nas reuniões da semana.
+          O agente rodou normalmente — este aviso confirma que não houve levantadas a reportar.
+        </p>
+        <p style="font-size:11px;color:#94A3B8;margin-top:22px">Agente de Reuniões GoAkira</p>
       </div>
     </body></html>"""
 
@@ -298,16 +320,14 @@ def run(de: str | None, ate: str | None, to: str | None, dry_run: bool,
     itens = _collect_levantadas(summaries)
     print(f"   {len(itens)} levantada(s) em {len(set(i['cliente'] for i in itens))} cliente(s)")
 
-    if not itens:
-        print("ℹ️  Nenhuma levantada de mão na janela. Nada a enviar.")
-        return
-
-    html = build_html(itens, start, end)
+    vazio = not itens
+    html = build_empty_html(start, end) if vazio else build_html(itens, start, end)
 
     if dry_run:
         out = Path("preview_levantadas.html")
         out.write_text(html, encoding="utf-8")
-        print(f"🔍 Dry-run — HTML salvo em {out.resolve()} (nenhum e-mail enviado)")
+        estado = "VAZIO" if vazio else f"{len(itens)} levantada(s)"
+        print(f"🔍 Dry-run [{estado}] — HTML salvo em {out.resolve()} (nenhum e-mail enviado)")
         return
 
     raw_to = to or os.environ.get("LEVANTADAS_RECIPIENTS", "")
