@@ -104,8 +104,11 @@ cd "Agente de Relatorios"
 
 ```powershell
 pip install -r requirements.txt
-npm install pptxgenjs
+npm install
 ```
+
+> `npm install` (sem argumento) instala tudo do `package.json`, incluindo o
+> `pptxgenjs` usado para gerar os PPTX mensais.
 
 > Nota: `requirements.txt` também tem `sentence-transformers`, `numpy` e
 > `pypdf`, usados por uma outra iniciativa ("segundo cérebro", `brain_*.py`)
@@ -125,20 +128,53 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REFRESH_TOKEN=
 SMTP_USER=c10@goakira.com.br
 SMTP_PASSWORD=
+SMTP_HOST=smtp.gmail.com
+SENDER_NAME=Agente de Reuniões GoAkira
+DRIVE_ROOT_FOLDER_ID=
 RECIPIENT_EMAIL=patricia.cotti@goakira.com.br
 DIRECTORS_EMAILS=jose.fugice@goakira.com.br,patricia.cotti@goakira.com.br
-WEEKLY_EXTRA_RECIPIENTS=fabiana.hamada@goakira.com.br,antonio.prates@goakira.com.br
 DAILY_EXTRA_RECIPIENTS=fabiana.hamada@goakira.com.br,antonio.prates@goakira.com.br
+WEEKLY_EXTRA_RECIPIENTS=fabiana.hamada@goakira.com.br,antonio.prates@goakira.com.br
 OPPORTUNITY_EXTRA_RECIPIENTS=fabiana.hamada@goakira.com.br,antonio.prates@goakira.com.br
-MONTHLY_RECIPIENTS=patricia.cotti@goakira.com.br
-SENDER_NAME=Agente de Reuniões GoAkira
-SMTP_HOST=smtp.gmail.com
-DRIVE_ROOT_FOLDER_ID=
+MONTHLY_RECIPIENTS=patricia.cotti@goakira.com.br,jose.fugice@goakira.com.br,fabiana.hamada@goakira.com.br,antonio.prates@goakira.com.br
+LEVANTADAS_RECIPIENTS=jose.fugice@goakira.com.br,patricia.cotti@goakira.com.br,fabiana.hamada@goakira.com.br,antonio.prates@goakira.com.br
+```
+
+> **Atualizado em 03/08/2026** (versão anterior estava defasada): incluído
+> `LEVANTADAS_RECIPIENTS` (destinatários do relatório de Levantadas de Mão) e o
+> `MONTHLY_RECIPIENTS` completo (José, Fabiana e Antonio, além da Patricia).
+> Copie os valores **exatamente** do `.env` do notebook — a fonte da verdade é
+> o notebook do Rafael.
+
+Opcionais (o código funciona sem eles, caindo em defaults):
+```
+AUDIT_ALERT_EMAIL=          # destino do alerta de furo de cobertura; vazio = SMTP_USER
+MONTHLY_REPORT_DAY=         # dia do mês p/ disparar o relatório mensal
 ```
 
 **Importante**: o `GOOGLE_REFRESH_TOKEN` funciona igual em qualquer máquina
 (não é preso ao notebook) — não precisa gerar um token novo, só copiar o valor
 atual.
+
+## Passo 4b — Semear os `summaries_*.json` (evita atas/e-mails duplicados)
+
+Os arquivos `summaries_*.json` são **dados**, estão no `.gitignore` e **não vêm
+pelo `git clone`**. Eles são o registro do que já foi processado (dedup por
+`_message_id`) e a fonte dos relatórios semanal/mensal/levantadas.
+
+Se a VPS começar sem eles:
+- o diário pode **regerar atas das últimas 72h** que o notebook já criou →
+  ata duplicada no Drive + e-mail duplicado durante o período de rodagem paralela;
+- os relatórios semanal/mensal/levantadas ficam **incompletos** até a VPS
+  acumular histórico próprio (some os dias anteriores ao corte).
+
+**Ação:** copiar os `summaries_*.json` do notebook para a raiz do projeto na VPS
+(pen drive, rede, ou zipar e enviar). São ~92 arquivos pequenos. Depois de copiar,
+confirme:
+
+```powershell
+(Get-ChildItem summaries_*.json).Count   # deve bater com o número do notebook
+```
 
 ## Passo 5 — Validar antes de agendar
 
@@ -158,10 +194,11 @@ notebook local, que têm caminho fixo do OneDrive) e cria as **4 tarefas**:
 
 | Tarefa | Quando | O que faz |
 |---|---|---|
-| Diário | **seg–sex 08:30** | `main.py --hours 72` — gera atas e relatório diário |
+| Levantadas | **segunda 07:00** | `weekly_levantadas.py --anterior` — relatório das levantadas de mão (funil) |
+| Diário | seg–sex 08:30 | `main.py --hours 72` — gera atas e relatório diário |
 | Auditoria | seg–sex 09:00 | `audit_cobertura.py` — confere se toda reunião de ontem virou ata |
-| Monitor | seg–sex 09:30 | avisa por e-mail se o diário falhou |
 | Semanal | segunda 09:00 | relatório semanal por consultor |
+| Monitor | seg–sex 09:30 | avisa por e-mail se o diário falhou |
 
 > **Mudanças em relação ao notebook (leia a seção "Lições aprendidas" abaixo):**
 > o diário agora inclui **segunda** e usa **janela de 72h** (antes era ter–sex,
@@ -187,16 +224,21 @@ desabilitar as tarefas do Task Scheduler no notebook local:
 Disable-ScheduledTask -TaskName "GoAkira - Agente de Reunioes"
 Disable-ScheduledTask -TaskName "GoAkira - Resumo Semanal"
 Disable-ScheduledTask -TaskName "GoAkira - Monitor do Agente"
+Disable-ScheduledTask -TaskName "GoAkira - Auditoria de Cobertura"
+Disable-ScheduledTask -TaskName "GoAkira - Levantadas de Mao"
 ```
 
 ## Checklist final
 
+- [ ] **(No notebook, ANTES) `git push`** — garante que o clone da VPS traz o código atual
 - [ ] Python, Git, Node.js instalados no VPS
 - [ ] Repositório clonado
 - [ ] Dependências instaladas (`pip` + `npm`)
-- [ ] `.env` recriado com os valores reais
+- [ ] `.env` recriado com os valores reais (inclui `LEVANTADAS_RECIPIENTS` e `MONTHLY_RECIPIENTS` completo)
+- [ ] `summaries_*.json` copiados do notebook (Passo 4b) — evita atas/e-mails duplicados
 - [ ] `python main.py --dry-run` rodou sem erro
 - [ ] `python audit_cobertura.py` rodou sem erro (auditoria de cobertura)
-- [ ] As **4 tarefas** agendadas criadas (`setup_vps_scheduler.ps1`): diário seg–sex 08:30, auditoria 09:00, monitor 09:30, semanal segunda 09:00
+- [ ] As **5 tarefas** agendadas criadas (`setup_vps_scheduler.ps1`): levantadas segunda 07:00, diário seg–sex 08:30, auditoria 09:00, semanal segunda 09:00, monitor 09:30
+- [ ] Confirmado que o alerta por e-mail da auditoria chega (`--alertar`)
 - [ ] Rodou em paralelo por alguns dias sem diferença
-- [ ] Task Scheduler do notebook local desabilitado
+- [ ] Task Scheduler do notebook local desabilitado (as 5 tarefas)
