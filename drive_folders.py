@@ -19,7 +19,8 @@ from googleapiclient.discovery import build
 
 PASTA_RAIZ_CLIENTES = "1XYNQf0Il4JQ85GeupTGC71-Mc7jSLa_K"
 
-# Pasta "Meet Recordings" de cada consultor.
+# Pasta "Meet Recordings" de cada consultor (ESTRUTURA ANTIGA — pasta plana:
+# os Google Docs de transcrição ficam soltos no primeiro nível da pasta).
 # Preenchida conforme cada consultor compartilhar a pasta com c10@goakira.com.br.
 # Passo: Drive → Meet Recordings → Compartilhar → c10@goakira.com.br (Leitor)
 # Depois enviar o link da pasta para incluir o ID aqui.
@@ -29,6 +30,23 @@ MEET_RECORDINGS_FOLDERS: dict[str, str] = {
     "Thais Andrade": "1Iz5fLfye0WqpvEeVWKiKyZsvIGPSvDep",
     "Kelly Almeida": "1LEpPNcEbdBqYE55w8btlBsA3EQEaeCPe",
     "Marco Paixão":  "1wmyQPZJaEdrCr33FzvNt7EYO-Is-KXmJ",
+}
+
+# Pasta "Google Meet" de cada consultor (ESTRUTURA NOVA — desde ~24/07/2026).
+# O Google passou a guardar as gravações/transcrições em UMA SUBPASTA POR
+# REUNIÃO (ou por série recorrente) dentro de uma pasta "Google Meet" na raiz
+# do Drive do consultor. Cada subpasta contém o Doc de transcrição
+# ("... - Anotações do Gemini") e o vídeo ("... - Recording"), que podem ser
+# arquivos reais OU atalhos (google-apps.shortcut) para os originais.
+#
+# COEXISTE com a estrutura antiga: a migração é gradual e por consultor — a
+# mesma conta pode ter reuniões novas aqui e antigas em MEET_RECORDINGS_FOLDERS
+# ao mesmo tempo. Por isso o pipeline varre AS DUAS.
+#
+# Preenchida conforme cada consultor compartilhar a pasta "Google Meet" com
+# c10@goakira.com.br (mesmo passo da antiga).
+MEET_RECORDINGS_SUBFOLDER_ROOTS: dict[str, str] = {
+    "Rafael": "1bkqSDR8WHA7gX0_MeTgLPrwvnezkzwzR",  # c10 — raiz do Drive de c10@goakira.com.br
 }
 
 # Nome canônico (client_aliases.py) → ID da pasta no Drive
@@ -59,6 +77,10 @@ CLIENT_FOLDERS: dict[str, str] = {
     "Migak":                "1kCLSCbG36an7Xl-ITTf6774ZN21fDLIa",
     # Bonus: encontrado durante a mesma varredura, também faltava
     "App Launch":           "1lrEf80NLNPW_kfbkVuonGg6YBByb557N",
+    # Adicionado em 11/08/2026 — cliente novo (Rafael). A pasta já existia no
+    # Drive, mas não estava mapeada aqui: a ata do Kickoff (03/08) caiu no
+    # fallback da raiz de Clientes por isso.
+    "Viavolt":              "1Qr_5KFdYFuARWF6Y0RW4I6YSEKHyIADp",
 }
 
 

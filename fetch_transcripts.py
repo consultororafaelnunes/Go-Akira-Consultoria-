@@ -30,8 +30,13 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from client_aliases import normalize_client, find_client_in_text, TODOS_PROJETOS
-from drive_folders import MEET_RECORDINGS_FOLDERS
+from client_aliases import (
+    normalize_client,
+    find_client_in_text,
+    is_internal_meeting,
+    TODOS_PROJETOS,
+)
+from drive_folders import MEET_RECORDINGS_FOLDERS, MEET_RECORDINGS_SUBFOLDER_ROOTS
 
 
 SCOPES = [
@@ -41,6 +46,8 @@ SCOPES = [
 ]
 
 GDOC_MIME = "application/vnd.google-apps.document"
+SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
+FOLDER_MIME = "application/vnd.google-apps.folder"
 
 # Sufixos que o Google Meet/Gemini usa para nomear os dois arquivos de uma
 # mesma reunião — a transcrição (Google Doc) e a gravação (vídeo). Usados
@@ -161,6 +168,11 @@ def _parse_filename(name: str) -> dict | None:
             desc = lenient["desc"]
             data_str = lenient["data"]
 
+    # Reunião interna com prefixo entre colchetes ("[INTERNO]", "[Treinamento]")
+    # — o formato bate com o parser, mas não é reunião de cliente: descarta.
+    if is_internal_meeting(cliente_raw):
+        return None
+
     try:
         dt = datetime.strptime(data_str, "%Y/%m/%d %H:%M")
     except ValueError:
@@ -249,6 +261,194 @@ def _video_duration_by_base_name(files: list[dict]) -> dict[str, str]:
     return result
 
 
+# ── Estrutura NOVA: pasta "Google Meet" com uma subpasta por reunião ────────────
+
+def _list_child_folders(service, parent_id: str) -> list[dict]:
+    """Lista todas as subpastas diretas de uma pasta (com paginação, Shared Drive safe)."""
+    folders, token = [], None
+    while True:
+        params = dict(
+            q=(
+                f"'{parent_id}' in parents"
+                f" and mimeType = '{FOLDER_MIME}'"
+                " and trashed = false"
+            ),
+            fields="nextPageToken, files(id, name, modifiedTime)",
+            pageSize=200,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        )
+        if token:
+            params["pageToken"] = token
+        result = service.files().list(**params).execute()
+        folders.extend(result.get("files", []))
+        token = result.get("nextPageToken")
+        if not token:
+            break
+    return folders
+
+
+def _list_subfolder_items(service, folder_id: str, hours_back: int | None) -> list[dict]:
+    """
+    Lista os itens de uma subpasta de reunião: Google Docs (transcrição), vídeos
+    (gravação) e ATALHOS (shortcuts) para qualquer um deles. Filtro opcional por
+    data de modificação. Inclui shortcutDetails para resolver o alvo dos atalhos.
+    """
+    query_parts = [
+        f"'{folder_id}' in parents",
+        f"(mimeType = '{GDOC_MIME}' or mimeType = 'video/mp4'"
+        f" or mimeType = 'video/webm' or mimeType = '{SHORTCUT_MIME}')",
+        "trashed = false",
+    ]
+    if hours_back is not None:
+        since = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+        query_parts.append(f"modifiedTime >= '{since.strftime('%Y-%m-%dT%H:%M:%SZ')}'")
+
+    query = " and ".join(query_parts)
+    files, token = [], None
+    while True:
+        params = dict(
+            q=query,
+            fields=(
+                "nextPageToken, files(id, name, modifiedTime, mimeType, "
+                "videoMediaMetadata, shortcutDetails)"
+            ),
+            pageSize=200,
+            orderBy="name",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        )
+        if token:
+            params["pageToken"] = token
+        result = service.files().list(**params).execute()
+        files.extend(result.get("files", []))
+        token = result.get("nextPageToken")
+        if not token:
+            break
+    return files
+
+
+def _resolve_shortcut(item: dict) -> dict | None:
+    """
+    Normaliza um atalho para um item {id, name, mimeType} apontando ao alvo real.
+    Retorna None se o atalho não aponta para Doc/vídeo. O nome exibido é o do
+    PRÓPRIO atalho (que carrega "[Cliente] ... - data - Anotações do Gemini").
+    """
+    sd = item.get("shortcutDetails") or {}
+    target_id = sd.get("targetId")
+    target_mime = sd.get("targetMimeType")
+    if not target_id or not target_mime:
+        return None
+    if target_mime == GDOC_MIME or target_mime.startswith("video/"):
+        return {"id": target_id, "name": item["name"], "mimeType": target_mime}
+    return None
+
+
+def _entries_from_new_structure(
+    service, roots: dict[str, str], hours_back: int | None
+) -> list[dict]:
+    """
+    Percorre as pastas "Google Meet" (estrutura nova), recursando 1 nível nas
+    subpastas por reunião, e devolve entradas normalizadas de transcrição.
+    Cada entrada: {consultor, id (Doc real), name (p/ parse), duracao_real}.
+    Resolve atalhos (shortcuts) para Docs/vídeos reais.
+    """
+    entries: list[dict] = []
+    for nome_consultor, root_id in roots.items():
+        if not root_id or str(root_id).startswith("COLE_"):
+            print(f"   Pasta 'Google Meet' de {nome_consultor} ainda não configurada — pulando")
+            continue
+
+        subfolders = _list_child_folders(service, root_id)
+        print(f"   Buscando em 'Google Meet' de {nome_consultor} ({len(subfolders)} subpasta(s))...")
+
+        for sf in subfolders:
+            items = _list_subfolder_items(service, sf["id"], hours_back)
+            docs, videos = [], []
+            for it in items:
+                if it.get("mimeType") == SHORTCUT_MIME:
+                    resolved = _resolve_shortcut(it)
+                    if not resolved:
+                        continue
+                    if resolved["mimeType"] == GDOC_MIME:
+                        docs.append({"id": resolved["id"], "name": resolved["name"]})
+                    # vídeo via atalho: sem videoMediaMetadata no atalho, então
+                    # não dá para extrair duração barata — ignorado (não crítico).
+                elif it.get("mimeType") == GDOC_MIME:
+                    docs.append({"id": it["id"], "name": it["name"]})
+                elif (it.get("mimeType") or "").startswith("video/"):
+                    videos.append(it)
+
+            duration_by_base = _video_duration_by_base_name(videos)
+            for d in docs:
+                entries.append({
+                    "consultor": nome_consultor,
+                    "id": d["id"],
+                    "name": d["name"],
+                    "duracao_real": duration_by_base.get(_base_name(d["name"], _DOC_SUFFIX)),
+                })
+    return entries
+
+
+def _entries_from_old_structure(
+    service, pastas: dict[str, str], hours_back: int | None
+) -> list[dict]:
+    """
+    Percorre as pastas planas "Meet Recordings" (estrutura antiga) e devolve
+    entradas normalizadas de transcrição — mesmo formato de _entries_from_new_structure.
+    """
+    entries: list[dict] = []
+    for nome_consultor, folder_id in pastas.items():
+        if not folder_id or str(folder_id).startswith("COLE_"):
+            print(f"   Pasta de {nome_consultor} ainda não configurada — pulando")
+            continue
+
+        print(f"   Buscando em Meet Recordings de {nome_consultor}...")
+        files = _list_folder(service, folder_id, hours_back)
+        docs = [f for f in files if f.get("mimeType") == GDOC_MIME]
+        duration_by_base = _video_duration_by_base_name(files)
+        print(f"      {len(docs)} arquivo(s) encontrado(s)")
+        for f in docs:
+            entries.append({
+                "consultor": nome_consultor,
+                "id": f["id"],
+                "name": f["name"],
+                "duracao_real": duration_by_base.get(_base_name(f["name"], _DOC_SUFFIX)),
+            })
+    return entries
+
+
+def _select_por_consultor(mapping: dict[str, str], consultor: str | None) -> dict[str, str]:
+    """Filtra um mapa consultor→pasta para um consultor específico (ou todos)."""
+    if consultor is None:
+        return mapping
+    return {consultor: mapping[consultor]} if consultor in mapping else {}
+
+
+def enumerate_meeting_docs(
+    service, hours_back: int | None, consultor: str | None = None
+) -> list[dict]:
+    """
+    Enumera TODAS as transcrições (Google Docs) visíveis, das DUAS estruturas de
+    Drive — antiga (pastas planas Meet Recordings) e nova (pastas "Google Meet"
+    com uma subpasta por reunião, com Docs/vídeos reais OU atalhos).
+
+    Somente leitura — nunca exporta conteúdo, cria ou apaga nada. É a fonte de
+    verdade compartilhada por fetch_drive_transcripts() (pipeline/ata) e por
+    audit_cobertura.auditar() (auditoria), garantindo que a auditoria enxergue
+    exatamente as mesmas reuniões que o pipeline.
+
+    Cada entrada: {consultor, id (Doc real), name (p/ _parse_filename), duracao_real}.
+    """
+    entries = _entries_from_old_structure(
+        service, _select_por_consultor(MEET_RECORDINGS_FOLDERS, consultor), hours_back
+    )
+    entries += _entries_from_new_structure(
+        service, _select_por_consultor(MEET_RECORDINGS_SUBFOLDER_ROOTS, consultor), hours_back
+    )
+    return entries
+
+
 def fetch_drive_transcripts(
     hours_back: int | None = 24,
     cliente: str | None = None,
@@ -271,66 +471,49 @@ def fetch_drive_transcripts(
 
     cliente_norm = normalize_client(cliente) if cliente else None
 
-    # Seleciona quais pastas varrer
-    pastas = (
-        {consultor: MEET_RECORDINGS_FOLDERS[consultor]}
-        if consultor and consultor in MEET_RECORDINGS_FOLDERS
-        else MEET_RECORDINGS_FOLDERS
-    )
+    # Enumera as reuniões das DUAS estruturas (antiga plana + nova "Google Meet")
+    entries = enumerate_meeting_docs(service, hours_back, consultor=consultor)
 
-    seen_ids    = set()   # dedup entre pastas
+    seen_ids    = set()   # dedup pelo id do Doc real (atalho já resolvido no enumerador)
     transcripts = []
 
-    for nome_consultor, folder_id in pastas.items():
-        if not folder_id or folder_id.startswith("COLE_"):
-            print(f"   Pasta de {nome_consultor} ainda não configurada — pulando")
+    for e in entries:
+        if e["id"] in seen_ids:
+            continue
+        seen_ids.add(e["id"])
+
+        parsed = _parse_filename(e["name"])
+        if not parsed:
+            print(f"      Pulando (nome não reconhecido): {e['name'][:100]}")
             continue
 
-        print(f"   Buscando em Meet Recordings de {nome_consultor}...")
-        files = _list_folder(service, folder_id, hours_back)
-        docs = [f for f in files if f.get("mimeType") == GDOC_MIME]
-        duration_by_base = _video_duration_by_base_name(files)
-        print(f"      {len(docs)} arquivo(s) encontrado(s)")
+        if cliente_norm and parsed["cliente"] != cliente_norm:
+            continue
 
-        for f in docs:
-            if f["id"] in seen_ids:
-                continue
-            seen_ids.add(f["id"])
+        dt = parsed["data_dt"]
+        if since_date and dt < since_date:
+            continue
+        if until_date and dt > until_date:
+            continue
 
-            parsed = _parse_filename(f["name"])
-            if not parsed:
-                print(f"      Pulando (nome não reconhecido): {f['name'][:100]}")
-                continue
+        text = _read_doc_text(service, e["id"])
+        if not text or len(text.strip()) < 50:
+            print(f"      Pulando (sem conteúdo): {e['name'][:60]}")
+            continue
 
-            if cliente_norm and parsed["cliente"] != cliente_norm:
-                continue
-
-            dt = parsed["data_dt"]
-            if since_date and dt < since_date:
-                continue
-            if until_date and dt > until_date:
-                continue
-
-            text = _read_doc_text(service, f["id"])
-            if not text or len(text.strip()) < 50:
-                print(f"      Pulando (sem conteúdo): {f['name'][:60]}")
-                continue
-
-            duracao_real = duration_by_base.get(_base_name(f["name"], _DOC_SUFFIX))
-
-            print(f"      OK: [{parsed['cliente']}] {parsed['assunto']} ({parsed['data_reuniao']})")
-            transcripts.append({
-                "message_id":  f["id"],
-                "subject":     f["name"],
-                "date":        parsed["data_reuniao"],
-                "cliente":     parsed["cliente"],
-                "fase":        parsed["fase"],
-                "assunto":     parsed["assunto"],
-                "consultor":   nome_consultor,
-                "data_dt":     parsed["data_dt"],
-                "transcript":  text.strip(),
-                "duracao_real": duracao_real,
-            })
+        print(f"      OK: [{parsed['cliente']}] {parsed['assunto']} ({parsed['data_reuniao']})")
+        transcripts.append({
+            "message_id":  e["id"],
+            "subject":     e["name"],
+            "date":        parsed["data_reuniao"],
+            "cliente":     parsed["cliente"],
+            "fase":        parsed["fase"],
+            "assunto":     parsed["assunto"],
+            "consultor":   e["consultor"],
+            "data_dt":     parsed["data_dt"],
+            "transcript":  text.strip(),
+            "duracao_real": e["duracao_real"],
+        })
 
     transcripts.sort(key=lambda t: t["data_dt"])
     print(f"   Total: {len(transcripts)} transcrição(ões) carregada(s)")

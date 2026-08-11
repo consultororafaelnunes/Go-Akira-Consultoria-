@@ -186,13 +186,16 @@ _ALIASES: dict[str, str] = {
 
     # Keystone
     "keystone": "Keystone",
+
+    # Viavolt (cliente novo — Rafael)
+    "viavolt": "Viavolt",
 }
 
 # Projetos ainda em andamento (fase consultiva ativa)
 PROJETOS_ATIVOS: set[str] = {
     # Rafael
     "Açaí Island", "Carrano", "Convicção Editora", "Indústria da Coxinha",
-    "Softli - Franqueado", "Urla Sorvetes",
+    "Softli - Franqueado", "Urla Sorvetes", "Viavolt",
     # Ivan
     "Colégio Bal", "IBF", "Laftech", "Gradisa", "Santa Edwiges",
     # Thais
@@ -224,6 +227,22 @@ def normalize_client(raw: str) -> str:
     Se não encontrar no mapa, devolve o nome original (limpo).
     """
     return _ALIASES.get(raw.strip().lower(), raw.strip())
+
+
+# Marcadores de reunião INTERNA (não geram ata). Introduzido em 11/08/2026:
+# a nova pasta "Google Meet" passou a guardar reuniões internas com prefixo
+# entre colchetes — ex: "[INTERNO] Insights IA", "[Treinamento] - Arq/Cons ...".
+# O parser padrão ("[X] ... - data") as reconheceria como clientes "INTERNO"/
+# "Treinamento", gerando atas espúrias e falsos furos na auditoria. Aqui o
+# prefixo é tratado como reunião interna e descartado do pipeline de atas.
+# (Clientes reais nunca usam estes rótulos; um cliente novo desconhecido — ex:
+#  "Viavolt" — NÃO cai aqui e continua sendo processado normalmente.)
+INTERNAL_MEETING_MARKERS: set[str] = {"interno", "treinamento"}
+
+
+def is_internal_meeting(cliente_raw: str) -> bool:
+    """True se o rótulo entre colchetes marca uma reunião interna (sem ata)."""
+    return cliente_raw.strip().lower() in INTERNAL_MEETING_MARKERS
 
 
 # Chaves de alias ordenadas da mais longa para a mais curta, para que

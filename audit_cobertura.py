@@ -34,8 +34,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 
-from drive_folders import MEET_RECORDINGS_FOLDERS
-from fetch_transcripts import GDOC_MIME, _list_folder, _parse_filename, get_credentials
+from fetch_transcripts import _parse_filename, enumerate_meeting_docs, get_credentials
 
 # Console do Windows às vezes usa cp1252 e quebra em acentos/símbolos — força UTF-8.
 try:
@@ -88,33 +87,32 @@ def auditar(inicio: date, fim: date) -> dict:
     unparsed: list[tuple[str, str]] = []
     seen: set[str] = set()
 
-    for consultor, folder_id in MEET_RECORDINGS_FOLDERS.items():
-        if not folder_id or str(folder_id).startswith("COLE_"):
-            print(f"  (pasta de {consultor} não configurada — pulando)")
+    # Mesma fonte de verdade do pipeline (fetch_transcripts) — varre AS DUAS
+    # estruturas de Drive (pastas planas antigas + pastas "Google Meet" novas
+    # com subpasta por reunião). Sem isso a auditoria fica cega para a estrutura
+    # nova e não alerta furos (foi exatamente o furo de 06-10/08/2026).
+    entries = enumerate_meeting_docs(service, hours_back=None)
+    for e in entries:
+        if e["id"] in seen:
             continue
-        files = _list_folder(service, folder_id, None)
-        docs = [f for f in files if f.get("mimeType") == GDOC_MIME]
-        for f in docs:
-            if f["id"] in seen:
-                continue
-            seen.add(f["id"])
-            parsed = _parse_filename(f["name"])
-            if not parsed:
-                if any(ds in f["name"] for ds in datas_janela):
-                    unparsed.append((consultor, f["name"]))
-                continue
-            if not (inicio <= parsed["data_dt"].date() <= fim):
-                continue
-            rows.append({
-                "consultor": consultor,
-                "cliente": parsed["cliente"],
-                "fase": parsed["fase"],
-                "assunto": parsed["assunto"],
-                "data": parsed["data_dt"].date(),
-                "id": f["id"],
-                "name": f["name"],
-                "processed": f["id"] in processados,
-            })
+        seen.add(e["id"])
+        parsed = _parse_filename(e["name"])
+        if not parsed:
+            if any(ds in e["name"] for ds in datas_janela):
+                unparsed.append((e["consultor"], e["name"]))
+            continue
+        if not (inicio <= parsed["data_dt"].date() <= fim):
+            continue
+        rows.append({
+            "consultor": e["consultor"],
+            "cliente": parsed["cliente"],
+            "fase": parsed["fase"],
+            "assunto": parsed["assunto"],
+            "data": parsed["data_dt"].date(),
+            "id": e["id"],
+            "name": e["name"],
+            "processed": e["id"] in processados,
+        })
 
     return {"rows": rows, "unparsed": unparsed}
 
