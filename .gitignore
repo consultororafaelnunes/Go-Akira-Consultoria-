@@ -2,6 +2,8 @@
 .env
 ID do cliente e Secret.txt
 senha app Agente Relatório.txt
+*service-account*.json
+credentials/
 
 # Gerados pelo pipeline (dados, não código)
 summaries_*.json
