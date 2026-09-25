@@ -246,7 +246,14 @@ def run_daily(hours_back: int = 24, dry_run: bool = False, mock: bool = False) -
                 quals = [o for o in ops if (o.get("grau") or "").lower() == "qualificada"]
                 if quals:
                     s_alerta = {**s, "oportunidades_comerciais": quals}
-                    send_opportunity_alert(s_alerta, get_consultant_email(s.get("consultor", "")))
+                    # Isola cada envio: uma falha de SMTP num alerta de
+                    # oportunidade não pode abortar o restante do pipeline
+                    # (agenda, PDF e e-mail diário vêm depois deste passo).
+                    try:
+                        send_opportunity_alert(s_alerta, get_consultant_email(s.get("consultor", "")))
+                    except Exception as e:
+                        print(f"   ⚠️  Falha ao enviar alerta de oportunidade "
+                              f"({s.get('cliente', '—')}): {e}")
                 elif ops:
                     print(f"   ℹ️  {len(ops)} menção(ões) de contexto em '{s.get('cliente','—')}' "
                           f"(sem handoff nominal) — alerta não disparado, ver relatório semanal")
