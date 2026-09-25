@@ -59,10 +59,19 @@ def _get_credentials() -> Credentials:
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
 _JURIDICO_SYSTEM = """\
-Você é um especialista em franchising e instrumentos jurídicos de franquia.
-Analise os registros das reuniões de consultoria de Business Plan e extraia
-TODAS as informações relevantes para elaboração dos instrumentos jurídicos
-(COF e Contrato de Franquia). Seja completo, preciso e use linguagem objetiva.\
+Você é um especialista em franchising e na elaboração da Circular de Oferta de
+Franquia (COF) sob a Lei de Franquias 13.966/2019. A partir dos registros das
+reuniões de consultoria de Business Plan, preencha o documento padrão
+"Informações para COF" da GoAkira, na estrutura de Incisos.
+
+Regras invioláveis:
+- Preserve valores, percentuais, prazos e datas EXATOS como aparecem nas reuniões.
+- NUNCA invente dado jurídico ou financeiro. Quando a informação não estiver nas
+  reuniões, escreva exatamente [A COLETAR COM O CLIENTE]. Quando for um ponto
+  jurídico sensível que exige avaliação do responsável, escreva [Dr. Marco verificar].
+- Não assuma o segmento do negócio — use apenas o que os registros indicam.
+- Linguagem objetiva e formal. Saída limpa: não cite de qual reunião veio cada
+  informação.\
 """
 
 _JURIDICO_PROMPT = """\
@@ -72,42 +81,66 @@ REGISTROS DAS REUNIÕES:
 {summaries_text}
 
 ---
-Elabore o BRIEFING JURÍDICO completo estruturado assim:
+Preencha o documento "INFORMAÇÕES PARA COF — {cliente}" na estrutura EXATA abaixo,
+usando as decisões das reuniões. Mantenha todos os cabeçalhos de seção. Onde faltar
+dado, use os marcadores [A COLETAR COM O CLIENTE] ou [Dr. Marco verificar].
 
-## 1. IDENTIFICAÇÃO DO NEGÓCIO
-Nome da marca, segmento, categoria de franquia, descrição do modelo.
+## IDENTIFICAÇÃO
+Responsável(eis) pelo franchising (nome e contato), site e redes sociais da empresa.
 
-## 2. MODELO DE FRANQUIA
-Formato das unidades, tamanho padrão, territórios, raio de exclusividade, meta de expansão.
+## INCISO I — HISTÓRICO, MISSÃO, VISÃO E VALORES
+Histórico resumido do negócio; missão; visão; valores.
 
-## 3. ESTRUTURA FINANCEIRA
-Taxa de franquia (valor e condições), royalties (%, base, periodicidade), fundo de marketing,
-investimento inicial estimado, payback estimado, demais encargos.
+## INCISO II — EMPRESAS LIGADAS AO FRANQUEADOR
+Existência de empresas com identidade de sócios ligadas ao futuro franqueador.
 
-## 4. OBRIGAÇÕES DO FRANQUEADOR
-Suporte, treinamento, fornecimento de insumos, visitas técnicas, sistemas e plataformas.
+## INCISO III — BALANÇOS
+Situação dos balanços da franqueadora para apresentação junto à COF.
 
-## 5. OBRIGAÇÕES DO FRANQUEADO
-Padrões operacionais obrigatórios, fornecedores homologados, treinamentos, relatórios, restrições.
+## INCISO IV — PENDÊNCIAS JUDICIAIS
+Pendências judiciais ou arbitragens da franqueadora, das marcas ou do sistema de franquia.
 
-## 6. PRAZO E RENOVAÇÃO
-Prazo do contrato, condições de renovação, direito de preferência.
+## INCISO V — DESCRIÇÃO DA FRANQUIA E ATIVIDADES DO FRANQUEADO
+Descrição detalhada da franquia e do negócio; atividades que o franqueado desempenhará.
 
-## 7. RESCISÃO E SAÍDA
-Condições de rescisão (ambas as partes), não-concorrência, destino do ponto e estoque.
+## INCISOS VI E VII — PERFIL DO FRANQUEADO E POLÍTICA COMERCIAL
+Perfil e requisitos do franqueado; envolvimento direto na operação; política comercial a respeitar.
 
-## 8. PROPRIEDADE INTELECTUAL
-Marcas (registradas ou em processo), segredos de negócio, restrições pós-encerramento.
+## INCISO VIII — INVESTIMENTO INICIAL
+Planilha de investimento inicial por plano/formato; condições de pagamento por item;
+local e mês/ano da pesquisa (fim do BP); o que NÃO está incluso na planilha.
 
-## 9. PONTOS DE ATENÇÃO JURÍDICA
-Questões sensíveis ou não resolvidas que precisam de decisão antes de redigir os instrumentos.
-Particularidades que demandam cláusulas específicas.
+## INCISO IX — TAXAS PERIÓDICAS
+Taxas periódicas por plano; outras remunerações à franqueadora/terceiros; aluguel ou
+comodato de bens; seguro exigido.
 
-## 10. HISTÓRICO DE DECISÕES RELEVANTES
-Principais decisões tomadas durante a consultoria. Mudanças de posição do cliente ao longo das reuniões.
+## INCISO XI — TERRITÓRIO E VENDAS
+Exclusividade x preferência de território; regras de concorrência territorial; política de
+vendas na unidade; clientes com tratamento especial.
 
-## 11. DADOS FALTANTES
-Liste os dados que o consultor jurídico precisará solicitar ao cliente.\
+## INCISO XII — MIX DE PRODUTOS E SERVIÇOS
+Mix de produtos e serviços; fornecedores ou marcas obrigatórias; centralização de contratos;
+softwares obrigatórios e finalidade.
+
+## INCISO XIII — O QUE É OFERECIDO E TREINAMENTO INICIAL
+O que a franqueadora oferece ao franqueado; treinamento inicial (público, local, carga horária
+e dias, resumo do conteúdo, se é cobrado).
+
+## INCISO XIV — MARCAS FRANQUEADAS
+Marcas envolvidas. Sinalize a verificação de registro no INPI com [Dr. Marco verificar].
+
+## INCISO XV — PREFERÊNCIA SOBRE O PONTO COMERCIAL
+Direito de preferência da franqueadora sobre o ponto comercial na saída do franqueado.
+
+## INCISO XXII — PRAZO DO CONTRATO
+Prazo do contrato de franquia.
+
+## INFORMAÇÕES ADICIONAIS
+Unidade piloto (endereço, cidade, CEP); divergências em relação ao piloto; obrigações
+operacionais de destaque; formatos a migrar; necessidade de homologar fornecedores por região.
+
+## PERFIL DO FRANQUEADO
+Em quatro blocos: Capital; Experiência; Expectativas; Comportamento.\
 """
 
 _MANUAIS_SYSTEM = """\
@@ -259,7 +292,7 @@ def _build_docx(
         if child is not sect_pr:
             body.remove(child)
 
-    tipo_label = "Briefing Jurídico" if tipo == "juridico" else "Briefing de Manuais Operacionais"
+    tipo_label = "Informações para COF" if tipo == "juridico" else "Briefing de Manuais Operacionais"
     destino    = "Instrumentos Jurídicos" if tipo == "juridico" else "Manuais Operacionais"
 
     def _run_style(run, size: int, bold: bool = False, color: RGBColor = None):
@@ -417,8 +450,10 @@ def generate_briefings(
         local.write_bytes(docx_bytes)
         print(f"         Local: {local}")
 
-        tipo_label = "Juridico" if tipo == "juridico" else "Manuais"
-        filename   = f"Briefing {tipo_label} — {cliente}"
+        filename = (
+            f"Informações para COF — {cliente}" if tipo == "juridico"
+            else f"Briefing Manuais — {cliente}"
+        )
         uploaded   = _upload_gdoc(service, docx_bytes, filename, br_fld)
 
         link = uploaded.get("webViewLink", "—")

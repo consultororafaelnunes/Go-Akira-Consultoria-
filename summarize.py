@@ -13,7 +13,7 @@ from datetime import date
 
 import anthropic
 
-from consultants import SERVICOS_GOAKIRA
+from consultants import SERVICOS_GOAKIRA, render_responsaveis_comerciais
 
 MODEL      = "claude-haiku-4-5-20251001"
 MAX_CHARS  = 15000   # corte máximo por transcrição
@@ -21,6 +21,7 @@ MAX_TOKENS = 4096
 MAX_RETRY  = 3       # tentativas por transcrição em caso de JSON inválido
 
 _SERVICOS_LISTA = "\n".join(f"  - {s}" for s in SERVICOS_GOAKIRA)
+_RESPONSAVEIS_LISTA = render_responsaveis_comerciais()
 
 SYSTEM_PROMPT = f"""Você é um assistente especializado em análise de reuniões corporativas da GoAkira.
 Analise a transcrição e retorne APENAS um JSON válido, sem texto adicional, sem markdown.
@@ -39,6 +40,8 @@ Campos obrigatórios:
   "oportunidades_comerciais": [
     {{
       "servico":      "Nome exato de um dos serviços do ecossistema GoAkira listados abaixo",
+      "grau":         "qualificada | mencao — ver 'Gatilhos de qualificação' abaixo",
+      "responsavel_citado": "Nome do responsável comercial citado na conversa, se houver — senão \\"\\"",
       "justificativa": "Frase objetiva citando a dor/necessidade mencionada pelo cliente que se encaixa nesse serviço — máx. ~150 caracteres"
     }}
   ],
@@ -60,6 +63,22 @@ Catálogo de serviços do ecossistema GoAkira (fora do escopo do projeto atual e
   NUNCA sinalize um serviço que já esteja descrito ali, mesmo que pareça se encaixar no catálogo;
   isso é o projeto em andamento, não uma oportunidade nova
 - Deixe [] se não houver nenhum sinal claro — a ausência de oportunidade é o caso mais comum
+
+Gatilhos de qualificação da "levantada de mão" (campo "grau") — calibre com atenção:
+
+Cada pilar do ecossistema tem um responsável comercial. Use o vínculo com esse nome para
+classificar o grau da oportunidade:
+{_RESPONSAVEIS_LISTA}
+
+- Marque "grau": "qualificada" APENAS quando a conversa liga a necessidade a um encaminhamento
+  ou oferta comercial que envolve o responsável daquele pilar — normalmente pelo nome. Exemplos de
+  sinal forte: alguém propõe "marcar uma agenda com a Bianca", "conectar com a Fabiana/Naka",
+  "apresentar o que a GDesign/Potencializee faz", ou o cliente pede explicitamente para falar com
+  esse responsável/área. Preencha "responsavel_citado" com o nome mencionado.
+- Marque "grau": "mencao" quando o serviço aparece só como TEMA do projeto ou diagnóstico, sem
+  esse vínculo comercial explícito (ninguém foi acionado, nenhum handoff proposto). É contexto,
+  não oportunidade a acionar. Deixe "responsavel_citado": "".
+- Na dúvida entre os dois, use "mencao" — qualificada é o sinal forte, e falso positivo tem custo.
 
 Critérios de sentimento — aplique com precisão:
 
